@@ -8,10 +8,10 @@ the outgoing request params and assert on them.
 """
 
 import httpx
-import pytest
 
 from fhir_mcp_server.server import (
     check_medication_interactions,
+    get_next_page,
     get_patient_summary,
     read_observation,
     read_patient,
@@ -51,10 +51,19 @@ class TestReadPatient:
         assert "John Smith" in result
         assert "MRN=12345" in result
 
-    async def test_propagates_http_error(self, mock_fhir):
+    async def test_404_returns_friendly_message(self, mock_fhir):
+        # @fhir_tool converts HTTP errors to strings — tools never raise.
         mock_fhir.get("/Patient/gone").mock(return_value=httpx.Response(404, json={}))
-        with pytest.raises(httpx.HTTPStatusError):
-            await read_patient("gone")
+        result = await read_patient("gone")
+        assert "404" in result
+        assert "Not found" in result
+
+    async def test_server_error_returns_friendly_message(self, mock_fhir):
+        mock_fhir.get("/Patient/boom").mock(
+            return_value=httpx.Response(500, text="err")
+        )
+        result = await read_patient("boom")
+        assert "500" in result
 
 
 class TestSearchPatients:
@@ -189,6 +198,23 @@ _INTERACTING_MEDS_BUNDLE = {
         },
     ],
 }
+
+
+class TestGetNextPage:
+    _NEXT_URL = "https://r4.smarthealthit.org/Patient?_getpagesoffset=10&_count=10"
+
+    async def test_fetches_and_formats_next_page(self, mock_fhir):
+        mock_fhir.get("/Patient").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
+        )
+        result = await get_next_page(self._NEXT_URL)
+        assert "John Smith" in result
+
+    async def test_rejects_cross_origin_url(self):
+        # Security boundary: the URL must start with FHIR_BASE_URL.
+        result = await get_next_page("https://evil.example.com/Patient?x=1")
+        assert "Invalid request" in result
+        assert "evil.example.com" in result
 
 
 class TestGetPatientSummary:

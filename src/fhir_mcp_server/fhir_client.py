@@ -65,3 +65,20 @@ async def search_resources(
     )
     response.raise_for_status()
     return response.json()
+
+
+async def fetch_next_page(url: str) -> dict[str, Any]:
+    """
+    Fetch a pre-formed FHIR pagination URL.
+
+    The URL must start with the configured FHIR_BASE_URL — this prevents the
+    model from redirecting the client to an arbitrary external host.
+    """
+    if not url.startswith(FHIR_BASE_URL):
+        raise ValueError(
+            f"Pagination URL {url!r} does not match the configured "
+            f"FHIR_BASE_URL {FHIR_BASE_URL!r}. Refusing to fetch."
+        )
+    response = await _get_client().get(url)
+    response.raise_for_status()
+    return response.json()

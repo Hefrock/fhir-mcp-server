@@ -87,3 +87,19 @@ class TestFormatBundle:
             {"resourceType": "Bundle", "type": "searchset", "total": 0}
         )
         assert "No matching resources" in out
+
+    def test_next_link_shown_when_present(self):
+        bundle_with_next = {
+            **SAMPLE_OBSERVATION_BUNDLE,
+            "link": [
+                {"relation": "self", "url": "https://r4.smarthealthit.org/Observation?_count=10"},
+                {"relation": "next", "url": "https://r4.smarthealthit.org/Observation?_count=10&_getpagesoffset=10"},
+            ],
+        }
+        out = formatters.format_bundle(bundle_with_next)
+        assert "Next page:" in out
+        assert "_getpagesoffset=10" in out
+
+    def test_no_next_link_when_absent(self):
+        out = formatters.format_bundle(SAMPLE_OBSERVATION_BUNDLE)
+        assert "Next page" not in out

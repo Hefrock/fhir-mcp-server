@@ -18,8 +18,10 @@ Every summary includes the resource id so the model can chain a follow-up read.
 """
 
 import asyncio
-from typing import Any, Optional
+import functools
+from typing import Any, Callable, Optional
 
+import httpx
 from mcp.server.fastmcp import FastMCP
 
 from . import fhir_client, formatters, interactions, loinc_codes
@@ -31,9 +33,49 @@ mcp = FastMCP(
         "MedicationRequests. Use search tools to find resources by demographic "
         "or clinical criteria, then read tools to retrieve full details by id. "
         "The check_medication_interactions tool flags known drug interactions "
-        "from a local reference set (not for clinical use)."
+        "from a local reference set (not for clinical use). "
+        "Search results include a 'Next page' URL when more results exist; "
+        "pass it to get_next_page to fetch the following page."
     ),
 )
+
+
+def fhir_tool(func: Callable) -> Callable:
+    """
+    Decorator that converts httpx network/HTTP exceptions into readable strings.
+
+    Applied to every MCP tool so the model receives a friendly explanation
+    instead of a stack trace. functools.wraps preserves the original function's
+    name, docstring, and type annotations so @mcp.tool() (applied on top) still
+    reads the correct schema.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            return await func(*args, **kwargs)
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            url = str(e.request.url)
+            if status == 404:
+                return f"Not found (HTTP 404): {url}"
+            if status >= 500:
+                return f"FHIR server error (HTTP {status}): {url}. Try again later."
+            return f"Request failed (HTTP {status}): {url}"
+        except httpx.ConnectError as e:
+            return (
+                f"Could not connect to the FHIR server ({fhir_client.FHIR_BASE_URL}). "
+                f"Check your FHIR_BASE_URL and network. Detail: {e}"
+            )
+        except httpx.TimeoutException:
+            return (
+                f"Request timed out after 30 s. "
+                f"The FHIR server at {fhir_client.FHIR_BASE_URL} may be slow."
+            )
+        except ValueError as e:
+            return f"Invalid request: {e}"
+
+    return wrapper
 
 
 def _capped_count(count: int) -> str:
@@ -47,6 +89,7 @@ def _capped_count(count: int) -> str:
 
 
 @mcp.tool()
+@fhir_tool
 async def read_patient(patient_id: str) -> str:
     """
     Fetch a single Patient by FHIR id and return a readable summary.
@@ -58,6 +101,7 @@ async def read_patient(patient_id: str) -> str:
 
 
 @mcp.tool()
+@fhir_tool
 async def search_patients(
     name: Optional[str] = None,
     family: Optional[str] = None,
@@ -99,6 +143,7 @@ async def search_patients(
 
 
 @mcp.tool()
+@fhir_tool
 async def read_observation(observation_id: str) -> str:
     """
     Fetch a single Observation by FHIR id and return a readable summary.
@@ -111,6 +156,7 @@ async def read_observation(observation_id: str) -> str:
 
 
 @mcp.tool()
+@fhir_tool
 async def search_observations(
     patient: Optional[str] = None,
     code: Optional[str] = None,
@@ -151,6 +197,7 @@ async def search_observations(
 
 
 @mcp.tool()
+@fhir_tool
 async def search_conditions(
     patient: Optional[str] = None,
     clinical_status: Optional[str] = None,
@@ -181,6 +228,7 @@ async def search_conditions(
 
 
 @mcp.tool()
+@fhir_tool
 async def search_medications(
     patient: Optional[str] = None,
     status: Optional[str] = None,
@@ -206,6 +254,7 @@ async def search_medications(
 
 
 @mcp.tool()
+@fhir_tool
 async def check_medication_interactions(medications: list[str]) -> str:
     """
     Check a list of medications for known pairwise drug interactions.
@@ -236,6 +285,25 @@ async def check_medication_interactions(medications: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pagination
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def get_next_page(next_url: str) -> str:
+    """
+    Fetch the next page of a FHIR search result.
+
+    Pass the 'Next page' URL from any search result here. The URL must point
+    to the same FHIR server (FHIR_BASE_URL) — other hosts are refused.
+    Returns the same readable summary format as the original search.
+    """
+    bundle = await fhir_client.fetch_next_page(next_url)
+    return formatters.format_bundle(bundle)
+
+
+# ---------------------------------------------------------------------------
 # Composite tool: one-shot clinical snapshot
 # ---------------------------------------------------------------------------
 
@@ -257,6 +325,7 @@ def _section(title: str, items: list[str]) -> str:
 
 
 @mcp.tool()
+@fhir_tool
 async def get_patient_summary(patient_id: str) -> str:
     """
     Build a one-shot clinical snapshot for a patient.

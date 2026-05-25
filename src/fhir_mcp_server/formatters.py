@@ -191,12 +191,21 @@ def format_resource(resource: dict[str, Any]) -> str:
     return formatter(resource)
 
 
+def _next_link(bundle: dict[str, Any]) -> str | None:
+    """Return the 'next' pagination URL from a Bundle's link array, or None."""
+    for link in bundle.get("link") or []:
+        if link.get("relation") == "next":
+            return link.get("url")
+    return None
+
+
 def format_bundle(bundle: dict[str, Any]) -> str:
     """
     Render a FHIR searchset Bundle as a readable list.
 
-    Includes the reported total and one summary line per entry. An empty
-    searchset returns a clear 'no matches' message rather than a blank string.
+    Includes the reported total, one summary line per entry, and — when the
+    server signals more pages — a 'Next page' URL the model can pass to
+    get_next_page. An empty searchset returns a clear 'no matches' message.
     """
     total = bundle.get("total", 0)
     entries = bundle.get("entry") or []
@@ -207,4 +216,9 @@ def format_bundle(bundle: dict[str, Any]) -> str:
     for entry in entries:
         resource = entry.get("resource", {})
         lines.append(f"  - {format_resource(resource)}")
+
+    next_url = _next_link(bundle)
+    if next_url:
+        lines.append(f"Next page: {next_url}")
+
     return "\n".join(lines)
