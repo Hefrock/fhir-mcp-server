@@ -12,7 +12,12 @@ import pytest
 
 from fhir_mcp_server import fhir_client
 
-from .conftest import SAMPLE_OBSERVATION, SAMPLE_OBSERVATION_BUNDLE, SAMPLE_PATIENT, SAMPLE_PATIENT_BUNDLE
+from .conftest import (
+    SAMPLE_OBSERVATION,
+    SAMPLE_OBSERVATION_BUNDLE,
+    SAMPLE_PATIENT,
+    SAMPLE_PATIENT_BUNDLE,
+)
 
 
 class TestReadResource:
@@ -64,11 +69,15 @@ class TestSearchResources:
         mock_fhir.get("/Observation").mock(
             return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
         )
-        result = await fhir_client.search_resources("Observation", {"patient": "example"})
+        result = await fhir_client.search_resources(
+            "Observation", {"patient": "example"}
+        )
         assert len(result["entry"]) == 1
         assert result["entry"][0]["resource"]["code"]["coding"][0]["code"] == "8867-4"
 
     async def test_raises_on_bad_request(self, mock_fhir):
-        mock_fhir.get("/Patient").mock(return_value=httpx.Response(400, text="Bad Request"))
+        mock_fhir.get("/Patient").mock(
+            return_value=httpx.Response(400, text="Bad Request")
+        )
         with pytest.raises(httpx.HTTPStatusError):
             await fhir_client.search_resources("Patient", {"invalid_param": "x"})

@@ -2,7 +2,11 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant query
 **FHIR R4** healthcare data. Point Claude (or any MCP client) at a FHIR server
-and ask natural-language questions about patients and observations.
+and ask natural-language questions about patients, observations, conditions, and
+medications — and check medication lists for known interactions.
+
+> **Not for clinical use.** This is an educational/portfolio project that talks
+> to public test sandboxes seeded with synthetic patients.
 
 ---
 
@@ -13,36 +17,41 @@ HL7 standard for exchanging healthcare data. Its core ideas:
 
 | Concept | What it means |
 |---|---|
-| **Resource** | A typed, self-describing unit of clinical data — `Patient`, `Observation`, `Condition`, `MedicationRequest`, etc. |
+| **Resource** | A typed unit of clinical data — `Patient`, `Observation`, `Condition`, `MedicationRequest`, etc. |
 | **RESTful API** | Every resource lives at `/{ResourceType}/{id}`. Read with `GET`, search with query params. |
 | **Bundle** | A container returned by search operations, with a list of matching `entry` objects. |
-| **LOINC / SNOMED** | Standard coding systems used in `code` elements to name observations (e.g. LOINC `8867-4` = heart rate). |
+| **LOINC / SNOMED** | Standard coding systems used in `code` elements (e.g. LOINC `8867-4` = heart rate). |
 
 This server targets **FHIR R4** (version 4.0.1), the most widely deployed
-version in the US and required for ONC / USCDI compliance.
+version in the US.
 
 ## What is MCP?
 
 **MCP** (Model Context Protocol) is an open protocol that lets AI assistants
-call tools backed by live data. The assistant describes what it wants, the MCP
-server fetches it, and the result flows back into the conversation.
+call tools backed by live data.
 
 ```
 Claude  ──tool call──▶  fhir-mcp-server  ──HTTP──▶  FHIR R4 server
-        ◀──result──────                  ◀──JSON────
+        ◀──summary─────                  ◀──JSON────
 ```
 
-## Architecture
+This server returns **readable clinical summaries** rather than raw JSON, so the
+model spends its context on signal. See [ARCHITECTURE.md](ARCHITECTURE.md) for
+the design and [EXAMPLES.md](EXAMPLES.md) for full conversation transcripts.
+
+## Architecture (at a glance)
 
 ```
 src/fhir_mcp_server/
-├── fhir_client.py   ← all async HTTP I/O (httpx)
-└── server.py        ← MCP tool definitions (FastMCP)
+├── fhir_client.py    ← async HTTP I/O (httpx), pooled connection
+├── formatters.py     ← FHIR resource -> readable clinical summary
+├── loinc_codes.py    ← friendly names <-> LOINC codes
+├── interactions.py   ← local drug-interaction lookup
+└── server.py         ← MCP tool definitions (FastMCP)
 ```
 
-The two-layer split keeps a clean boundary: `fhir_client` knows about HTTP and
-FHIR URLs; `server` knows about MCP and tool schemas. Tests can mock at the HTTP
-layer without touching MCP internals.
+Each layer has one job and a clean boundary, so tests mock at the HTTP layer and
+the pure modules (formatters, loinc, interactions) test with no I/O at all.
 
 ## Tools
 
@@ -51,80 +60,77 @@ layer without touching MCP internals.
 | `read_patient` | `GET /Patient/{id}` | `patient_id` |
 | `search_patients` | `GET /Patient?...` | `name`, `family`, `given`, `birthdate`, `identifier` |
 | `read_observation` | `GET /Observation/{id}` | `observation_id` |
-| `search_observations` | `GET /Observation?...` | `patient`, `code`, `category`, `date` |
+| `search_observations` | `GET /Observation?...` | `patient`, `code`*, `category`, `date` |
+| `search_conditions` | `GET /Condition?...` | `patient`, `clinical_status` |
+| `search_medications` | `GET /MedicationRequest?...` | `patient`, `status` |
+| `check_medication_interactions` | *(local, no network)* | `medications: list[str]` |
 
-All search tools accept an optional `count` parameter (max 50) and return a
-FHIR `Bundle` of type `searchset`.
+\* `code` accepts a raw LOINC code (`8867-4`) **or** a friendly name
+(`heart_rate`, `glucose`, `hemoglobin_a1c`), resolved via `loinc_codes.py`.
+
+All search tools accept an optional `count` (1–50, default 10).
 
 ## Quickstart
 
 **Prerequisites:** Python 3.11+
 
 ```bash
-# Install the package and dev dependencies
-pip install -e ".[dev]"
-
-# Run tests (no network required — all HTTP is mocked)
-pytest
-
-# Start the MCP server (stdio transport, default for Claude Desktop)
-fhir-mcp-server
+pip install -e ".[dev]"   # install package + dev deps
+make check                # lint + run tests (no network needed)
+fhir-mcp-server           # start the server (stdio transport)
 ```
 
-The server connects to the public HAPI FHIR R4 test instance by default.
-Override with an environment variable:
+The server connects to the **SMART R4 sandbox** (`https://r4.smarthealthit.org`)
+by default. Override for any R4 server:
 
 ```bash
 FHIR_BASE_URL=https://your-fhir-server.example.com/fhir fhir-mcp-server
 ```
 
+### NixOS / Nix users
+
+A flake provides a reproducible dev shell (Nix-pinned Python + a project venv):
+
+```bash
+nix develop      # drops you into a ready environment
+make check
+```
+
 ## Claude Desktop integration
 
-Add this to your `claude_desktop_config.json`:
+Copy [`claude_desktop_config.json`](claude_desktop_config.json) into your Claude
+Desktop config (merge the `mcpServers` block):
 
 ```json
 {
   "mcpServers": {
-    "fhir": {
-      "command": "fhir-mcp-server"
+    "fhir-r4": {
+      "command": "fhir-mcp-server",
+      "env": { "FHIR_BASE_URL": "https://r4.smarthealthit.org" }
     }
   }
 }
 ```
 
 Then ask Claude things like:
-- *"Find patients named Smith born after 1980"*
-- *"Get all vital-sign observations for patient 592"*
-- *"What is the heart rate in observation obs-hr-1?"*
-
-## Example conversation
-
-```
-You:    Find a patient named James Chalmers and show me their recent vitals.
-
-Claude: [calls search_patients(name="James Chalmers")]
-        Found Patient/592 — James T. Chalmers, born 1965-03-22.
-
-        [calls search_observations(patient="592", category="vital-signs", count=5)]
-        Recent vitals:
-          • Heart rate: 78 bpm (2024-11-01)
-          • Blood pressure: 122/78 mmHg (2024-11-01)
-          • SpO₂: 98% (2024-10-28)
-```
+- *"Find patients named Smith and summarize the first one."*
+- *"Show recent vital-sign observations for patient <id>."*
+- *"List this patient's active conditions and current medications."*
+- *"Do warfarin and aspirin interact?"*
 
 ## Development
 
 ```bash
-# Run the full test suite
-pytest -v
-
-# Type-check
-pyright src/
-
-# Lint
-ruff check src/ tests/
+make install   # editable install with dev deps
+make test      # pytest
+make lint      # ruff check .
+make format    # ruff check --fix .
+make check     # lint + test (what CI enforces)
 ```
+
+CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
+the exact same `make check` gate, so local green means CI green.
 
 ## License
 
-MIT
+[MIT](LICENSE)
