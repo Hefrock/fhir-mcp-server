@@ -89,12 +89,17 @@ FHIR_BASE_URL=https://your-fhir-server.example.com/fhir fhir-mcp-server
 
 ### NixOS / Nix users
 
-A flake provides a reproducible dev shell (Nix-pinned Python + a project venv):
+A flake provides a reproducible dev shell: a Nix-pinned Python plus a project
+venv for the pip deps, and **`ruff` from Nix** (the pip wheel is a dynamically
+linked binary that won't run on NixOS):
 
 ```bash
-nix develop      # drops you into a ready environment
-make check
+nix develop      # Python + venv (.[dev]) + nix-provided ruff, all ready
+make check       # lint + tests
 ```
+
+Do **not** `pip install .[lint]` on NixOS — that pulls the broken ruff wheel.
+Let the flake provide ruff instead.
 
 ## Claude Desktop integration
 
@@ -121,15 +126,21 @@ Then ask Claude things like:
 ## Development
 
 ```bash
-make install   # editable install with dev deps
+make install   # editable install with test deps (.[dev])
 make test      # pytest
-make lint      # ruff check .
+make lint      # ruff check .   (needs ruff on PATH — see below)
 make format    # ruff check --fix .
 make check     # lint + test (what CI enforces)
 ```
 
+`ruff` is intentionally **not** in the `dev` extra (its pip wheel won't run on
+NixOS). Get it from whichever fits your machine:
+
+- **NixOS:** `nix develop` provides it. Nothing else to do.
+- **Other platforms / CI:** `pip install -e ".[dev,lint]"` pulls ruff via pip.
+
 CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
-the exact same `make check` gate, so local green means CI green.
+the same `make check` gate, so local green means CI green.
 
 ## License
 

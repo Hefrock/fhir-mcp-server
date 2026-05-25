@@ -22,8 +22,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install (editable, with dev deps)
-        run: pip install -e ".[dev]"
+      # CI runs on Ubuntu, where ruff's pip wheel works fine, so we pull both
+      # the test deps (dev) and ruff (lint) from pip here.
+      - name: Install (editable, with dev + lint deps)
+        run: pip install -e ".[dev,lint]"
 
       # Lint scope here is `.` — exactly what `make lint` and the local
       # pre-commit run use, so nothing passes locally but fails in CI.
