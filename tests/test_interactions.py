@@ -41,3 +41,20 @@ class TestCheckMedications:
 
     def test_single_drug_yields_nothing(self):
         assert interactions.check_medications(["warfarin"]) == []
+
+
+class TestExtractKnownDrugs:
+    def test_extracts_from_medication_display(self):
+        assert interactions.extract_known_drugs("Warfarin 5 mg oral tablet") == [
+            "warfarin"
+        ]
+
+    def test_brand_name_normalized_to_generic(self):
+        assert interactions.extract_known_drugs("Coumadin 5 mg tablet") == ["warfarin"]
+
+    def test_unknown_drug_yields_nothing(self):
+        assert interactions.extract_known_drugs("Vitamin D 1000 IU") == []
+
+    def test_word_boundary_avoids_substring_false_positives(self):
+        # "aspirin" should not be found inside an unrelated longer word.
+        assert "aspirin" not in interactions.extract_known_drugs("aspirineXYZ blend")

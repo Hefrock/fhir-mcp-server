@@ -80,6 +80,23 @@ via `loinc_codes.resolve()` *before* querying. Unknown values pass through
 unchanged, so raw codes still work. Input normalization happens once, at the
 edge.
 
+### 6. Concurrent composite tools
+
+`get_patient_summary` issues four FHIR calls (patient, conditions, vitals,
+medications) with `asyncio.gather(..., return_exceptions=True)`. Two payoffs:
+
+- **Latency:** the calls run in parallel, so total time is the slowest single
+  request, not the sum of all four.
+- **Resilience:** `return_exceptions=True` turns a failed sub-query into a
+  *value* we inspect, rather than an exception that aborts the summary. The
+  patient read is treated as mandatory; the other three degrade to
+  "none found" if they fail.
+
+The tool also demonstrates module composition: it extracts drug names from the
+fetched medications (`interactions.extract_known_drugs`) and runs them back
+through the interaction checker — `interactions` never knows about FHIR, yet
+the summary connects the two.
+
 ## Data flow: a search request
 
 1. Claude calls `search_observations(patient="x", code="heart_rate")`.

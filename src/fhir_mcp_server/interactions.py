@@ -20,6 +20,7 @@ Design notes
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -132,3 +133,32 @@ def check_medications(drugs: list[str]) -> list[dict[str, str]]:
 
     findings.sort(key=lambda f: severity_rank.get(f["severity"], 99))
     return findings
+
+
+# Vocabulary of every name we recognize: canonical generics (drawn from the
+# interaction table) plus brand aliases. Derived from the data above so it can
+# never drift out of sync with it.
+_KNOWN_NAMES: set[str] = (
+    {name for pair in _INTERACTIONS for name in pair}
+    | set(_SYNONYMS.keys())
+    | set(_SYNONYMS.values())
+)
+
+
+def extract_known_drugs(text: str) -> list[str]:
+    """
+    Find known drug names mentioned in free text (e.g. a FHIR medication
+    display like "Warfarin 5 mg oral tablet") and return them as canonical
+    generic names, de-duplicated.
+
+    Matching is word-boundary based so "aspirin" matches but a substring inside
+    a larger word does not.
+    """
+    lowered = text.lower()
+    found: list[str] = []
+    for name in _KNOWN_NAMES:
+        if re.search(rf"\b{re.escape(name)}\b", lowered):
+            generic = _normalize(name)
+            if generic not in found:
+                found.append(generic)
+    return found

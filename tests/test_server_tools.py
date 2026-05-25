@@ -12,6 +12,7 @@ import pytest
 
 from fhir_mcp_server.server import (
     check_medication_interactions,
+    get_patient_summary,
     read_observation,
     read_patient,
     search_conditions,
@@ -162,3 +163,94 @@ class TestCheckMedicationInteractions:
     async def test_requires_two_medications(self):
         result = await check_medication_interactions(["warfarin"])
         assert "at least two" in result
+
+
+# Two interacting meds, so the summary's interaction check has something to find.
+_INTERACTING_MEDS_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 2,
+    "entry": [
+        {
+            "resource": {
+                "resourceType": "MedicationRequest",
+                "id": "m1",
+                "status": "active",
+                "medicationCodeableConcept": {"text": "Warfarin 5 mg oral tablet"},
+            }
+        },
+        {
+            "resource": {
+                "resourceType": "MedicationRequest",
+                "id": "m2",
+                "status": "active",
+                "medicationCodeableConcept": {"text": "Aspirin 81 mg oral tablet"},
+            }
+        },
+    ],
+}
+
+
+class TestGetPatientSummary:
+    def _wire_all(self, mock_fhir, meds_bundle):
+        mock_fhir.get("/Patient/example").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+        )
+        mock_fhir.get("/Condition").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CONDITION_BUNDLE)
+        )
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=meds_bundle)
+        )
+
+    async def test_composes_all_sections(self, mock_fhir):
+        self._wire_all(mock_fhir, SAMPLE_MEDICATION_BUNDLE)
+        result = await get_patient_summary("example")
+        assert "Patient Summary" in result
+        assert "John Smith" in result
+        assert "Essential hypertension" in result  # condition
+        assert "Heart rate" in result  # vital
+        assert "Warfarin" in result  # medication
+
+    async def test_flags_interactions_among_active_meds(self, mock_fhir):
+        self._wire_all(mock_fhir, _INTERACTING_MEDS_BUNDLE)
+        result = await get_patient_summary("example")
+        assert "Medication interaction warnings" in result
+        assert "MAJOR" in result
+        assert "warfarin + aspirin" in result
+
+    async def test_degrades_when_a_subquery_fails(self, mock_fhir):
+        # Conditions endpoint errors; the summary should still render the rest.
+        mock_fhir.get("/Patient/example").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+        )
+        mock_fhir.get("/Condition").mock(return_value=httpx.Response(500, text="boom"))
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=SAMPLE_MEDICATION_BUNDLE)
+        )
+        result = await get_patient_summary("example")
+        assert "Active conditions: none found" in result  # degraded section
+        assert "Heart rate" in result  # other sections still present
+
+    async def test_patient_read_failure_is_fatal(self, mock_fhir):
+        mock_fhir.get("/Patient/missing").mock(
+            return_value=httpx.Response(404, json={})
+        )
+        # The other queries may or may not fire; they shouldn't matter.
+        mock_fhir.get("/Condition").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CONDITION_BUNDLE)
+        )
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=SAMPLE_MEDICATION_BUNDLE)
+        )
+        result = await get_patient_summary("missing")
+        assert "Could not retrieve Patient missing" in result

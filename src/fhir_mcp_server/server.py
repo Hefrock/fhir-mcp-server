@@ -17,7 +17,8 @@ than raw JSON, so the model spends its context on signal, not boilerplate.
 Every summary includes the resource id so the model can chain a follow-up read.
 """
 
-from typing import Optional
+import asyncio
+from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -231,6 +232,113 @@ async def check_medication_interactions(medications: list[str]) -> str:
             f"{f['description']}"
         )
     lines.append("(Local reference set only — not for clinical use.)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Composite tool: one-shot clinical snapshot
+# ---------------------------------------------------------------------------
+
+
+def _resources(bundle_or_error: Any) -> list[dict[str, Any]]:
+    """Pull resource dicts out of a Bundle, or [] if the fetch errored."""
+    if isinstance(bundle_or_error, Exception):
+        return []
+    entries = bundle_or_error.get("entry") or []
+    return [e.get("resource", {}) for e in entries]
+
+
+def _section(title: str, items: list[str]) -> str:
+    """Render a titled section, or a clear 'none' line when empty."""
+    if not items:
+        return f"{title}: none found"
+    body = "\n".join(f"  - {line}" for line in items)
+    return f"{title} ({len(items)}):\n{body}"
+
+
+@mcp.tool()
+async def get_patient_summary(patient_id: str) -> str:
+    """
+    Build a one-shot clinical snapshot for a patient.
+
+    Fetches, concurrently: the Patient, their active Conditions, recent
+    vital-sign Observations, and active MedicationRequests. Then checks the
+    active medications for known drug interactions. Returns a single readable
+    summary. Individual sections degrade gracefully if a sub-query fails.
+    """
+    # Fire all four FHIR calls at once; gather waits for the slowest. With
+    # return_exceptions=True a single failure becomes a value we can handle
+    # rather than an exception that aborts the whole summary.
+    patient, conditions, vitals, meds = await asyncio.gather(
+        fhir_client.read_resource("Patient", patient_id),
+        fhir_client.search_resources(
+            "Condition",
+            {"patient": patient_id, "clinical-status": "active", "_count": "20"},
+        ),
+        fhir_client.search_resources(
+            "Observation",
+            {"patient": patient_id, "category": "vital-signs", "_count": "10"},
+        ),
+        fhir_client.search_resources(
+            "MedicationRequest",
+            {"patient": patient_id, "status": "active", "_count": "20"},
+        ),
+        return_exceptions=True,
+    )
+
+    # The patient read is the one fetch we can't do without.
+    if isinstance(patient, Exception):
+        return f"Could not retrieve Patient {patient_id}: {patient}"
+
+    lines = ["=== Patient Summary ===", formatters.format_patient(patient), ""]
+
+    condition_resources = _resources(conditions)
+    lines.append(
+        _section(
+            "Active conditions",
+            [formatters.format_condition(c) for c in condition_resources],
+        )
+    )
+    lines.append("")
+
+    vital_resources = _resources(vitals)
+    lines.append(
+        _section(
+            "Recent vital signs",
+            [formatters.format_observation(o) for o in vital_resources],
+        )
+    )
+    lines.append("")
+
+    med_resources = _resources(meds)
+    lines.append(
+        _section(
+            "Active medications",
+            [formatters.format_medication_request(m) for m in med_resources],
+        )
+    )
+
+    # Cross-check: extract drug names from the medication displays and run them
+    # through the interaction checker.
+    drug_names: list[str] = []
+    for med in med_resources:
+        if "medicationCodeableConcept" in med:
+            text = formatters._coding_display(med["medicationCodeableConcept"])
+        else:
+            text = med.get("medicationReference", {}).get("display", "")
+        drug_names.extend(interactions.extract_known_drugs(text))
+
+    findings = interactions.check_medications(drug_names)
+    if findings:
+        lines.append("")
+        warnings = [
+            f"[{f['severity'].upper()}] {f['drug_a']} + {f['drug_b']}: "
+            f"{f['description']}"
+            for f in findings
+        ]
+        lines.append(_section("Medication interaction warnings", warnings))
+        lines.append("(Local reference set only — not for clinical use.)")
+
     return "\n".join(lines)
 
 

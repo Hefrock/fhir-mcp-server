@@ -64,6 +64,7 @@ the pure modules (formatters, loinc, interactions) test with no I/O at all.
 | `search_conditions` | `GET /Condition?...` | `patient`, `clinical_status` |
 | `search_medications` | `GET /MedicationRequest?...` | `patient`, `status` |
 | `check_medication_interactions` | *(local, no network)* | `medications: list[str]` |
+| `get_patient_summary` | *(4 calls, concurrent)* | `patient_id` |
 
 \* `code` accepts a raw LOINC code (`8867-4`) **or** a friendly name
 (`heart_rate`, `glucose`, `hemoglobin_a1c`), resolved via `loinc_codes.py`.

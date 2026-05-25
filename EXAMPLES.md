@@ -122,3 +122,45 @@ Claude: [calls check_medication_interactions(["acetaminophen", "loratadine"])]
 
 Searches that match nothing return a clear message rather than an empty result,
 so the assistant can say "no records found" instead of guessing.
+
+## 6. One-shot patient summary
+
+`get_patient_summary` is the flagship tool: a single call fetches demographics,
+active conditions, recent vitals, and active medications **concurrently**, then
+flags interactions among the real medication list.
+
+```
+You:    Give me a full summary of patient 1a2b.
+
+Claude: [calls get_patient_summary(patient_id="1a2b")]
+
+        === Patient Summary ===
+        [Patient 1a2b] John Smith, male, 41y (DOB 1984-06-15) | MRN=10293
+
+        Active conditions (2):
+          - [Condition c-htn] Essential hypertension — clinical: active,
+            verification: confirmed, onset: 2019-05-20
+          - [Condition c-af] Atrial fibrillation — clinical: active,
+            verification: confirmed, onset: 2022-01-11
+
+        Recent vital signs (1):
+          - [Observation o-441] Heart rate: 72 beats/minute (final, 2024-11-01)
+
+        Active medications (2):
+          - [MedicationRequest m-war] Warfarin 5 mg oral tablet (active,
+            ordered 2023-11-02)
+          - [MedicationRequest m-asa] Aspirin 81 mg oral tablet (active,
+            ordered 2023-11-02)
+
+        Medication interaction warnings (1):
+          - [MAJOR] warfarin + aspirin: Additive bleeding risk; concurrent use
+            raises hemorrhage risk.
+        (Local reference set only — not for clinical use.)
+
+        This 41-year-old patient has hypertension and atrial fibrillation, both
+        active. Vitals look normal. Note the MAJOR interaction between his
+        warfarin and aspirin — worth confirming with the prescriber.
+```
+
+If any single section can't be retrieved, it shows "none found" and the rest of
+the summary still renders — one failed sub-query never blanks the whole report.
