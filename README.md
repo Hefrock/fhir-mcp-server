@@ -102,25 +102,52 @@ make check       # lint + tests
 Do **not** `pip install .[lint]` on NixOS — that pulls the broken ruff wheel.
 Let the flake provide ruff instead.
 
-## Claude Desktop integration
+## Connect it to an MCP client
 
-Copy [`claude_desktop_config.json`](claude_desktop_config.json) into your Claude
-Desktop config (merge the `mcpServers` block):
+The server speaks MCP over stdio, so any MCP client can launch it. Easiest
+first.
+
+### Claude Code (recommended — works on Linux/NixOS/macOS/Windows)
+
+This repo ships a project-scoped [`.mcp.json`](.mcp.json). Clone the repo, set
+up the environment, and run Claude Code **from the project directory with the
+environment active** so `python` resolves to the one that has the package:
+
+```bash
+git clone https://github.com/Hefrock/fhir-mcp-server.git
+cd fhir-mcp-server
+nix develop                 # or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+claude                      # Claude Code auto-detects .mcp.json
+```
+
+`.mcp.json` launches the server with `python -m fhir_mcp_server`, which works
+from any environment where the package is importable (no reliance on a console
+script being on `PATH`).
+
+### Claude Desktop (macOS / Windows — no official Linux build)
+
+Merge the `mcpServers` block from
+[`claude_desktop_config.json`](claude_desktop_config.json) into your Claude
+Desktop config. Desktop launches servers with its own environment, so use an
+**absolute path** to the project venv's Python:
 
 ```json
 {
   "mcpServers": {
     "fhir-r4": {
-      "command": "fhir-mcp-server",
+      "command": "/ABSOLUTE/PATH/TO/fhir-mcp-server/.venv/bin/python",
+      "args": ["-m", "fhir_mcp_server"],
       "env": { "FHIR_BASE_URL": "https://r4.smarthealthit.org" }
     }
   }
 }
 ```
 
-Then ask Claude things like:
+### Try it
+
+Once connected, ask:
+- *"Give me a full summary of patient \<id\>."* (uses `get_patient_summary`)
 - *"Find patients named Smith and summarize the first one."*
-- *"Show recent vital-sign observations for patient <id>."*
 - *"List this patient's active conditions and current medications."*
 - *"Do warfarin and aspirin interact?"*
 
