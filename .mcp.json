@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fhir-r4": {
+      "command": "python",
+      "args": ["-m", "fhir_mcp_server"],
+      "env": {
+        "FHIR_BASE_URL": "https://r4.smarthealthit.org"
+      }
+    }
+  }
+}

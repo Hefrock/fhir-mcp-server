@@ -15,10 +15,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Pure-Python test tooling — installs cleanly via pip on every platform,
+# including NixOS.
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "respx>=0.21.0",
+]
+# Ruff is a compiled binary. Its pip wheel is dynamically linked and will NOT
+# run on NixOS (use the Nix-provided ruff via `nix develop` there). Kept as a
+# separate extra so CI and non-Nix machines can still `pip install .[dev,lint]`.
+lint = [
+    "ruff>=0.6.0",
 ]
 
 [project.scripts]
@@ -30,6 +38,10 @@ packages = ["src/fhir_mcp_server"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

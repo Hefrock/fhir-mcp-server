@@ -1,24 +1,29 @@
 """
-Unit tests for the MCP tool functions in server.py.
+Tests for the MCP tool functions in server.py.
 
-These tests call the Python functions directly (bypassing the MCP protocol
-layer) and verify that they correctly delegate to fhir_client and return
-well-formed JSON strings.
+These call the tool functions directly (bypassing the MCP transport) and verify
+they delegate to fhir_client correctly and return readable summaries. Where a
+tool transforms its inputs (count capping, LOINC name resolution), we capture
+the outgoing request params and assert on them.
 """
 
-import json
-
 import httpx
-import pytest
 
 from fhir_mcp_server.server import (
+    check_medication_interactions,
+    get_next_page,
+    get_patient_summary,
     read_observation,
     read_patient,
+    search_conditions,
+    search_medications,
     search_observations,
     search_patients,
 )
 
 from .conftest import (
+    SAMPLE_CONDITION_BUNDLE,
+    SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
     SAMPLE_PATIENT,
@@ -26,67 +31,76 @@ from .conftest import (
 )
 
 
+def _capture(store, json_body):
+    """Build a respx side_effect that records query params then responds."""
+
+    def handler(request):
+        store["params"] = dict(request.url.params)
+        return httpx.Response(200, json=json_body)
+
+    return handler
+
+
 class TestReadPatient:
-    async def test_returns_json_string(self, mock_fhir):
+    async def test_returns_readable_summary(self, mock_fhir):
         mock_fhir.get("/Patient/example").mock(
             return_value=httpx.Response(200, json=SAMPLE_PATIENT)
         )
         result = await read_patient("example")
-        data = json.loads(result)
-        assert data["resourceType"] == "Patient"
-        assert data["name"][0]["family"] == "Smith"
+        assert "Patient example" in result
+        assert "John Smith" in result
+        assert "MRN=12345" in result
 
-    async def test_propagates_http_error(self, mock_fhir):
+    async def test_404_returns_friendly_message(self, mock_fhir):
+        # @fhir_tool converts HTTP errors to strings — tools never raise.
         mock_fhir.get("/Patient/gone").mock(return_value=httpx.Response(404, json={}))
-        with pytest.raises(httpx.HTTPStatusError):
-            await read_patient("gone")
+        result = await read_patient("gone")
+        assert "404" in result
+        assert "Not found" in result
+
+    async def test_server_error_returns_friendly_message(self, mock_fhir):
+        mock_fhir.get("/Patient/boom").mock(
+            return_value=httpx.Response(500, text="err")
+        )
+        result = await read_patient("boom")
+        assert "500" in result
 
 
 class TestSearchPatients:
-    async def test_family_search(self, mock_fhir):
+    async def test_family_search_lists_results(self, mock_fhir):
         mock_fhir.get("/Patient").mock(
             return_value=httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
         )
         result = await search_patients(family="Smith")
-        bundle = json.loads(result)
-        assert bundle["type"] == "searchset"
-        assert bundle["entry"][0]["resource"]["id"] == "example"
+        assert "Found 1 result" in result
+        assert "John Smith" in result
 
     async def test_count_capped_at_50(self, mock_fhir):
-        """_count should never exceed 50 regardless of what the caller passes."""
-        captured = {}
-
-        def capture(request, route):
-            captured["params"] = dict(request.url.params)
-            return httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
-
-        mock_fhir.get("/Patient").mock(side_effect=capture)
+        captured: dict = {}
+        mock_fhir.get("/Patient").mock(
+            side_effect=_capture(captured, SAMPLE_PATIENT_BUNDLE)
+        )
         await search_patients(name="Jones", count=999)
         assert captured["params"]["_count"] == "50"
 
     async def test_none_params_excluded(self, mock_fhir):
-        """Parameters left as None must not appear in the query string."""
-        captured = {}
-
-        def capture(request, route):
-            captured["params"] = dict(request.url.params)
-            return httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
-
-        mock_fhir.get("/Patient").mock(side_effect=capture)
+        captured: dict = {}
+        mock_fhir.get("/Patient").mock(
+            side_effect=_capture(captured, SAMPLE_PATIENT_BUNDLE)
+        )
         await search_patients(family="Smith")
         assert "given" not in captured["params"]
         assert "name" not in captured["params"]
 
 
 class TestReadObservation:
-    async def test_returns_observation_json(self, mock_fhir):
+    async def test_returns_observation_summary(self, mock_fhir):
         mock_fhir.get("/Observation/obs-hr-1").mock(
             return_value=httpx.Response(200, json=SAMPLE_OBSERVATION)
         )
         result = await read_observation("obs-hr-1")
-        data = json.loads(result)
-        assert data["resourceType"] == "Observation"
-        assert data["valueQuantity"]["value"] == 72
+        assert "Heart rate" in result
+        assert "72" in result
 
 
 class TestSearchObservations:
@@ -95,16 +109,174 @@ class TestSearchObservations:
             return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
         )
         result = await search_observations(patient="example", category="vital-signs")
-        bundle = json.loads(result)
-        assert bundle["type"] == "searchset"
+        assert "Found 1 result" in result
 
-    async def test_count_capped_at_50(self, mock_fhir):
-        captured = {}
+    async def test_friendly_code_name_resolved_to_loinc(self, mock_fhir):
+        """code='heart_rate' must be resolved to LOINC 8867-4 before querying."""
+        captured: dict = {}
+        mock_fhir.get("/Observation").mock(
+            side_effect=_capture(captured, SAMPLE_OBSERVATION_BUNDLE)
+        )
+        await search_observations(patient="example", code="heart_rate")
+        assert captured["params"]["code"] == "8867-4"
 
-        def capture(request, route):
-            captured["params"] = dict(request.url.params)
-            return httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+    async def test_raw_code_passed_through(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/Observation").mock(
+            side_effect=_capture(captured, SAMPLE_OBSERVATION_BUNDLE)
+        )
+        await search_observations(patient="example", code="8480-6")
+        assert captured["params"]["code"] == "8480-6"
 
-        mock_fhir.get("/Observation").mock(side_effect=capture)
-        await search_observations(patient="example", count=100)
-        assert captured["params"]["_count"] == "50"
+
+class TestSearchConditions:
+    async def test_lists_conditions(self, mock_fhir):
+        mock_fhir.get("/Condition").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CONDITION_BUNDLE)
+        )
+        result = await search_conditions(patient="example", clinical_status="active")
+        assert "Essential hypertension" in result
+
+    async def test_clinical_status_maps_to_hyphenated_param(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/Condition").mock(
+            side_effect=_capture(captured, SAMPLE_CONDITION_BUNDLE)
+        )
+        await search_conditions(patient="example", clinical_status="active")
+        assert captured["params"]["clinical-status"] == "active"
+
+
+class TestSearchMedications:
+    async def test_lists_medications(self, mock_fhir):
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=SAMPLE_MEDICATION_BUNDLE)
+        )
+        result = await search_medications(patient="example", status="active")
+        assert "Warfarin" in result
+
+
+class TestCheckMedicationInteractions:
+    async def test_flags_known_major_interaction(self):
+        result = await check_medication_interactions(["warfarin", "aspirin"])
+        assert "MAJOR" in result
+        assert "warfarin" in result and "aspirin" in result
+
+    async def test_brand_names_normalized(self):
+        result = await check_medication_interactions(["Coumadin", "ASA"])
+        assert "MAJOR" in result
+
+    async def test_no_interaction_message(self):
+        result = await check_medication_interactions(["acetaminophen", "loratadine"])
+        assert "No known interactions" in result
+
+    async def test_requires_two_medications(self):
+        result = await check_medication_interactions(["warfarin"])
+        assert "at least two" in result
+
+
+# Two interacting meds, so the summary's interaction check has something to find.
+_INTERACTING_MEDS_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 2,
+    "entry": [
+        {
+            "resource": {
+                "resourceType": "MedicationRequest",
+                "id": "m1",
+                "status": "active",
+                "medicationCodeableConcept": {"text": "Warfarin 5 mg oral tablet"},
+            }
+        },
+        {
+            "resource": {
+                "resourceType": "MedicationRequest",
+                "id": "m2",
+                "status": "active",
+                "medicationCodeableConcept": {"text": "Aspirin 81 mg oral tablet"},
+            }
+        },
+    ],
+}
+
+
+class TestGetNextPage:
+    _NEXT_URL = "https://r4.smarthealthit.org/Patient?_getpagesoffset=10&_count=10"
+
+    async def test_fetches_and_formats_next_page(self, mock_fhir):
+        mock_fhir.get("/Patient").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
+        )
+        result = await get_next_page(self._NEXT_URL)
+        assert "John Smith" in result
+
+    async def test_rejects_cross_origin_url(self):
+        # Security boundary: the URL must start with FHIR_BASE_URL.
+        result = await get_next_page("https://evil.example.com/Patient?x=1")
+        assert "Invalid request" in result
+        assert "evil.example.com" in result
+
+
+class TestGetPatientSummary:
+    def _wire_all(self, mock_fhir, meds_bundle):
+        mock_fhir.get("/Patient/example").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+        )
+        mock_fhir.get("/Condition").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CONDITION_BUNDLE)
+        )
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=meds_bundle)
+        )
+
+    async def test_composes_all_sections(self, mock_fhir):
+        self._wire_all(mock_fhir, SAMPLE_MEDICATION_BUNDLE)
+        result = await get_patient_summary("example")
+        assert "Patient Summary" in result
+        assert "John Smith" in result
+        assert "Essential hypertension" in result  # condition
+        assert "Heart rate" in result  # vital
+        assert "Warfarin" in result  # medication
+
+    async def test_flags_interactions_among_active_meds(self, mock_fhir):
+        self._wire_all(mock_fhir, _INTERACTING_MEDS_BUNDLE)
+        result = await get_patient_summary("example")
+        assert "Medication interaction warnings" in result
+        assert "MAJOR" in result
+        assert "warfarin + aspirin" in result
+
+    async def test_degrades_when_a_subquery_fails(self, mock_fhir):
+        # Conditions endpoint errors; the summary should still render the rest.
+        mock_fhir.get("/Patient/example").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+        )
+        mock_fhir.get("/Condition").mock(return_value=httpx.Response(500, text="boom"))
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=SAMPLE_MEDICATION_BUNDLE)
+        )
+        result = await get_patient_summary("example")
+        assert "Active conditions: none found" in result  # degraded section
+        assert "Heart rate" in result  # other sections still present
+
+    async def test_patient_read_failure_is_fatal(self, mock_fhir):
+        mock_fhir.get("/Patient/missing").mock(
+            return_value=httpx.Response(404, json={})
+        )
+        # The other queries may or may not fire; they shouldn't matter.
+        mock_fhir.get("/Condition").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CONDITION_BUNDLE)
+        )
+        mock_fhir.get("/Observation").mock(
+            return_value=httpx.Response(200, json=SAMPLE_OBSERVATION_BUNDLE)
+        )
+        mock_fhir.get("/MedicationRequest").mock(
+            return_value=httpx.Response(200, json=SAMPLE_MEDICATION_BUNDLE)
+        )
+        result = await get_patient_summary("missing")
+        assert "Could not retrieve Patient missing" in result
