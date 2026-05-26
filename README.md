@@ -8,6 +8,8 @@ medications — and check medication lists for known interactions.
 > **Not for clinical use.** This is an educational/portfolio project that talks
 > to public test sandboxes seeded with synthetic patients.
 
+![Demo](assets/demo.gif)
+
 ---
 
 ## What is FHIR?
