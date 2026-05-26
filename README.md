@@ -8,7 +8,7 @@ medications — and check medication lists for known interactions.
 > **Not for clinical use.** This is an educational/portfolio project that talks
 > to public test sandboxes seeded with synthetic patients.
 
-![Demo](assets/demo.gif)
+🚀![Demo](assets/demo.gif)
 
 ---
 
@@ -33,8 +33,32 @@ version in the US.
 call tools backed by live data.
 
 ```
-Claude  ──tool call──▶  fhir-mcp-server  ──HTTP──▶  FHIR R4 server
-        ◀──summary─────                  ◀──JSON────
+┌────────────────────────────────────────────────────────────────────────┐
+│ HOST APPLICATION (e.g., Claude Desktop / IDE)                          │
+│                                                                        │
+│  ┌───────────┐          Invokes Tool           ┌────────────┐          │
+│  │    LLM    │ ──────────────────────────────> │    MCP     │          │
+│  │  (Model)  │ <────────────────────────────── │   Client   │          │
+│  └───────────┘        Returns Clean Text       └────────────┘          │
+└──────────────────────────────────────────────────────│─────────────────┘
+                                                       │
+                                            JSON-RPC over Stdio/SSE
+                                            (e.g., fhir_search_patient)
+                                                       │
+                                                       ▼
+                                         ┌───────────────────────────┐
+                                         │      fhir-mcp-server      │
+                                         │       (MCP Server)        │
+                                         └───────────────────────────┘
+                                                       │
+                                            HTTPS REST API Call
+                                            (Authorization + JSON)
+                                                       │
+                                                       ▼
+                                         ┌───────────────────────────┐
+                                         │      FHIR R4 Server       │
+                                         │  (HAPI FHIR, Epic, etc.)  │
+                                         └───────────────────────────┘
 ```
 
 This server returns **readable clinical summaries** rather than raw JSON, so the
@@ -151,7 +175,7 @@ Once connected, ask:
 - *"Give me a full summary of patient \<id\>."* (uses `get_patient_summary`)
 - *"Find patients named Smith and summarize the first one."*
 - *"List this patient's active conditions and current medications."*
-- *"Do warfarin and aspirin interact?"*
+- *"Does this patient have any medications that interacte with each other?"*
 
 ## Development
 
