@@ -14,7 +14,7 @@ medications — and check medication lists for known interactions.
 
 ## What is FHIR?
 
-**FHIR** (Fast Healthcare Interoperability Resources, pronounced "fire") is the
+🔥**FHIR** (Fast Healthcare Interoperability Resources, pronounced "fire") is the
 HL7 standard for exchanging healthcare data. Its core ideas:
 
 | Concept | What it means |
@@ -29,7 +29,7 @@ version in the US.
 
 ## What is MCP?
 
-**MCP** (Model Context Protocol) is an open protocol that lets AI assistants
+🔌**MCP** (Model Context Protocol) is an open protocol that lets AI assistants
 call tools backed by live data.
 
 ```
