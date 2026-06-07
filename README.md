@@ -211,7 +211,7 @@ clinical data outside the walled gardens of proprietary EHR portals:
 Both projects share a conviction that drives this one too: clinical data is more
 useful — and more humane — when it's legible to the person it's about. This
 server applies that same idea to FHIR, translating raw clinical resources into
-summaries an AI assistant (and, by extension, a person) can actually read.
+summaries an AI assistant can actually read.
 
 The code itself is independently written against the public FHIR R4 specification
 and the SMART Health IT sandbox.
