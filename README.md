@@ -202,11 +202,7 @@ This project draws inspiration from two efforts that opened up patient access to
 clinical data outside the walled gardens of proprietary EHR portals:
 
 - **[Open Record](https://github.com/fanpierlabs)** by Ryan Hughes / Fan Pier Labs
-  — a project reimagining what a patient-facing view of an Epic MyChart record
-  could look like when the data is presented on the patient's own terms.
-- **[OpenKP](https://www.kidneypatientmonitor.com/)** by Hugo Campos — a
-  patient-led effort to liberate implantable cardiac device data so patients can
-  see and understand their own health information directly.
+- **[OpenKP](https://www.kidneypatientmonitor.com/)** by Hugo Campos
 
 Both projects share a conviction that drives this one too: clinical data is more
 useful — and more humane — when it's legible to the person it's about. This
