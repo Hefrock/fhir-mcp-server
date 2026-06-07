@@ -205,7 +205,7 @@ better understand and engage with their own clinical data:
 - **[OpenKP](https://github.com/hugooc/OpenKP)** by Hugo Campos
 
 Both projects share a conviction that drives home that clinical data is more
-useful — and more humane — when it's understandable to the person it's about.
+useful — and more humane — when patients can understand i!
 
 The code itself is independently written against the public FHIR R4 specification
 and the SMART Health IT sandbox.
