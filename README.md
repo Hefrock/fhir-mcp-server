@@ -196,6 +196,28 @@ NixOS). Get it from whichever fits your machine:
 CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
 the same `make check` gate, so local green means CI green.
 
+## Acknowledgments
+
+This project draws inspiration from two efforts that opened up patient access to
+clinical data outside the walled gardens of proprietary EHR portals:
+
+- **[Open Record](https://github.com/fanpierlabs)** by Ryan Hughes / Fan Pier Labs
+  — a project reimagining what a patient-facing view of an Epic MyChart record
+  could look like when the data is presented on the patient's own terms.
+- **[OpenKP](https://www.kidneypatientmonitor.com/)** by Hugo Campos — a
+  patient-led effort to liberate implantable cardiac device data so patients can
+  see and understand their own health information directly.
+
+Both projects share a conviction that drives this one too: clinical data is more
+useful — and more humane — when it's legible to the person it's about. This
+server applies that same idea to FHIR, translating raw clinical resources into
+summaries an AI assistant (and, by extension, a person) can actually read.
+
+The code itself is independently written against the public FHIR R4 specification
+and the SMART Health IT sandbox.
+
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, educational, and
+noncommercial use. See the [PolyForm Project](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+for the full terms.
