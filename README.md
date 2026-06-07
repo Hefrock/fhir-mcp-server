@@ -196,6 +196,22 @@ NixOS). Get it from whichever fits your machine:
 CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
 the same `make check` gate, so local green means CI green.
 
+## Acknowledgments
+
+This project draws inspiration from two efforts that focus on helping patients
+better understand and engage with their own clinical data:
+
+- **[Open Record](https://github.com/Fan-Pier-Labs/openrecord)** by Ryan Hughes / Fan Pier Labs
+- **[OpenKP](https://github.com/hugooc/OpenKP)** by Hugo Campos
+
+Both projects share a conviction that drives home that clinical data is more
+useful — and more humane — when it's understandable to the person it's about.
+
+The code itself is independently written against the public FHIR R4 specification
+and the SMART Health IT sandbox.
+
 ## License
 
-[MIT](LICENSE)
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, educational, and
+noncommercial use. See the [PolyForm Project](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+for the full terms.
