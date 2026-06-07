@@ -198,16 +198,16 @@ the same `make check` gate, so local green means CI green.
 
 ## Acknowledgments
 
-This project draws inspiration from two efforts that opened up patient access to
-clinical data outside the walled gardens of proprietary EHR portals:
+This project draws inspiration from two efforts that focus on helping patients
+better understand and engage with their own clinical data:
 
 - **[Open Record](https://github.com/fanpierlabs)** by Ryan Hughes / Fan Pier Labs
 - **[OpenKP](https://www.kidneypatientmonitor.com/)** by Hugo Campos
 
-Both projects share a conviction that drives this one too: clinical data is more
-useful — and more humane — when it's legible to the person it's about. This
-server applies that same idea to FHIR, translating raw clinical resources into
-summaries an AI assistant can actually read.
+Both projects share a conviction that drives home that clinical data is more
+useful — and more humane — when it's understandable to the person it's about.
+This server applies that same idea to FHIR, translating raw clinical resources
+into summaries an AI assistant can actually read.
 
 The code itself is independently written against the public FHIR R4 specification
 and the SMART Health IT sandbox.
