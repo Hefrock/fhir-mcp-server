@@ -12,9 +12,9 @@ medications — and check medication lists for known interactions.
 
 ---
 
-## What is FHIR?
+## 🔥 What is FHIR?
 
-🔥**FHIR** (Fast Healthcare Interoperability Resources, pronounced "fire") is the
+**FHIR** (Fast Healthcare Interoperability Resources, pronounced "fire") is the
 HL7 standard for exchanging healthcare data. Its core ideas:
 
 | Concept | What it means |
@@ -27,9 +27,9 @@ HL7 standard for exchanging healthcare data. Its core ideas:
 This server targets **FHIR R4** (version 4.0.1), the most widely deployed
 version in the US.
 
-## What is MCP?
+## 🔌 What is MCP?
 
-🔌**MCP** (Model Context Protocol) is an open protocol that lets AI assistants
+**MCP** (Model Context Protocol) is an open protocol that lets AI assistants
 call tools backed by live data.
 
 ```
@@ -65,7 +65,7 @@ This server returns **readable clinical summaries** rather than raw JSON, so the
 model spends its context on signal. See [ARCHITECTURE.md](ARCHITECTURE.md) for
 the design and [EXAMPLES.md](EXAMPLES.md) for full conversation transcripts.
 
-## Architecture (at a glance)
+## 🏛️ Architecture (at a glance)
 
 ```
 src/fhir_mcp_server/
@@ -79,7 +79,7 @@ src/fhir_mcp_server/
 Each layer has one job and a clean boundary, so tests mock at the HTTP layer and
 the pure modules (formatters, loinc, interactions) test with no I/O at all.
 
-## Tools
+## 🛠️ Tools
 
 | Tool | FHIR interaction | Key parameters |
 |---|---|---|
@@ -97,7 +97,7 @@ the pure modules (formatters, loinc, interactions) test with no I/O at all.
 
 All search tools accept an optional `count` (1–50, default 10).
 
-## Quickstart
+## ⏱️ Quickstart
 
 **Prerequisites:** Python 3.11+
 
@@ -128,7 +128,7 @@ make check       # lint + tests
 Do **not** `pip install .[lint]` on NixOS — that pulls the broken ruff wheel.
 Let the flake provide ruff instead.
 
-## Connect it to an MCP client
+## 🚡 Connect it to an MCP client
 
 The server speaks MCP over stdio, so any MCP client can launch it. Easiest
 first.
@@ -177,7 +177,7 @@ Once connected, ask:
 - *"List this patient's active conditions and current medications."*
 - *"Does this patient have any medications that interacte with each other?"*
 
-## Development
+## ✍️ Development
 
 ```bash
 make install   # editable install with test deps (.[dev])
@@ -196,7 +196,7 @@ NixOS). Get it from whichever fits your machine:
 CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
 the same `make check` gate, so local green means CI green.
 
-## Acknowledgments
+## 👏 Acknowledgments
 
 This project draws inspiration from two efforts that focus on helping patients
 better understand and engage with their own clinical data:
@@ -210,7 +210,7 @@ useful — and more humane — when patients can understand i!
 The code itself is independently written against the public FHIR R4 specification
 and the SMART Health IT sandbox.
 
-## License
+## ⚖️ License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, educational, and
 noncommercial use. See the [PolyForm Project](https://polyformproject.org/licenses/noncommercial/1.0.0/)
