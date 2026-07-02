@@ -81,3 +81,40 @@ class TestSearchResources:
         )
         with pytest.raises(httpx.HTTPStatusError):
             await fhir_client.search_resources("Patient", {"invalid_param": "x"})
+
+
+class TestBearerToken:
+    """FHIR_ACCESS_TOKEN, when set, must ride on every outgoing request."""
+
+    def _capture_auth(self, store, json_body):
+        def handler(request):
+            store["auth"] = request.headers.get("authorization")
+            return httpx.Response(200, json=json_body)
+
+        return handler
+
+    async def test_no_auth_header_when_token_unset(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/Patient/example").mock(
+            side_effect=self._capture_auth(captured, SAMPLE_PATIENT)
+        )
+        await fhir_client.read_resource("Patient", "example")
+        assert captured["auth"] is None
+
+    async def test_bearer_header_added_when_token_set(self, mock_fhir):
+        fhir_client.FHIR_ACCESS_TOKEN = "test-token-abc123"
+        captured: dict = {}
+        mock_fhir.get("/Patient/example").mock(
+            side_effect=self._capture_auth(captured, SAMPLE_PATIENT)
+        )
+        await fhir_client.read_resource("Patient", "example")
+        assert captured["auth"] == "Bearer test-token-abc123"
+
+    async def test_bearer_header_on_search(self, mock_fhir):
+        fhir_client.FHIR_ACCESS_TOKEN = "search-token"
+        captured: dict = {}
+        mock_fhir.get("/Patient").mock(
+            side_effect=self._capture_auth(captured, SAMPLE_PATIENT_BUNDLE)
+        )
+        await fhir_client.search_resources("Patient", {"family": "Smith"})
+        assert captured["auth"] == "Bearer search-token"

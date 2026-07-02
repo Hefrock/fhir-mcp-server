@@ -114,6 +114,19 @@ by default. Override for any R4 server:
 FHIR_BASE_URL=https://your-fhir-server.example.com/fhir fhir-mcp-server
 ```
 
+For FHIR servers that require authentication (Epic, Cerner, Meditech sandboxes,
+production endpoints), pass a bearer token via `FHIR_ACCESS_TOKEN`:
+
+```bash
+FHIR_BASE_URL=https://api.example.com/fhir \
+FHIR_ACCESS_TOKEN=eyJhbGciOi... \
+fhir-mcp-server
+```
+
+When set, every outgoing request carries an `Authorization: Bearer <token>`
+header. Full SMART-on-FHIR OAuth flow is out of scope for this transport layer
+— obtain the token externally and pass it in.
+
 ### NixOS / Nix users
 
 A flake provides a reproducible dev shell: a Nix-pinned Python plus a project
