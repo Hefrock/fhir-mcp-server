@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+from . import models
+
 # ---------------------------------------------------------------------------
 # Small shared helpers
 # ---------------------------------------------------------------------------
@@ -249,6 +251,191 @@ def format_resource(resource: dict[str, Any]) -> str:
     if formatter is None:
         return f"[{rtype or 'Unknown'} {resource.get('id', '?')}] (no formatter)"
     return formatter(resource)
+
+
+# ---------------------------------------------------------------------------
+# JSON companions — structured shape for programmatic consumers
+#
+# Each ``*_to_json`` function mirrors the corresponding ``format_*`` function
+# but returns a plain dict shaped by the Pydantic models in models.py. The
+# models validate the structure; ``.model_dump(by_alias=True)`` emits camelCase
+# keys where a FHIR field uses camelCase (birthDate, authoredOn, etc.).
+# ---------------------------------------------------------------------------
+
+
+def _age_years(birth: str | None) -> int | None:
+    """Integer age; None if birthdate is missing or unparseable."""
+    if not birth:
+        return None
+    try:
+        born = datetime.strptime(birth[:10], "%Y-%m-%d").date()
+    except ValueError:
+        try:
+            born = date(int(birth[:4]), 1, 1)
+        except (ValueError, TypeError):
+            return None
+    today = date.today()
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+
+
+def patient_to_json(patient: dict[str, Any]) -> dict[str, Any]:
+    identifiers: list[dict[str, str]] = []
+    for ident in patient.get("identifier", []):
+        label = _coding_display(ident.get("type")) if ident.get("type") else "id"
+        value = ident.get("value")
+        if value:
+            identifiers.append({"type": label, "value": str(value)})
+
+    model = models.PatientJson(
+        id=str(patient.get("id", "?")),
+        name=_human_name(patient),
+        gender=patient.get("gender"),
+        birth_date=patient.get("birthDate"),
+        age_years=_age_years(patient.get("birthDate")),
+        identifiers=[models.IdentifierJson(**i) for i in identifiers],
+    )
+    return model.model_dump(by_alias=True)
+
+
+def observation_to_json(obs: dict[str, Any]) -> dict[str, Any]:
+    value = models.ObservationValueJson()
+    if "valueQuantity" in obs:
+        q = obs["valueQuantity"]
+        value.quantity = q.get("value")
+        value.unit = q.get("unit")
+    elif "valueCodeableConcept" in obs:
+        value.coded = _coding_display(obs["valueCodeableConcept"])
+    elif "valueString" in obs:
+        value.string = obs["valueString"]
+    elif "component" in obs:
+        for comp in obs["component"]:
+            cq = comp.get("valueQuantity", {}) or {}
+            value.components.append(
+                models.ObservationComponentJson(
+                    label=_coding_display(comp.get("code")),
+                    quantity=cq.get("value"),
+                    unit=cq.get("unit"),
+                )
+            )
+
+    interpretation = None
+    for i in obs.get("interpretation", []):
+        flag = _coding_display(i)
+        if flag and flag != "unknown":
+            interpretation = flag
+            break
+
+    model = models.ObservationJson(
+        id=str(obs.get("id", "?")),
+        codeDisplay=_coding_display(obs.get("code")),
+        status=obs.get("status"),
+        effectiveDate=obs.get("effectiveDateTime") or obs.get("issued"),
+        value=value,
+        interpretation=interpretation,
+    )
+    return model.model_dump(by_alias=True)
+
+
+def condition_to_json(cond: dict[str, Any]) -> dict[str, Any]:
+    model = models.ConditionJson(
+        id=str(cond.get("id", "?")),
+        codeDisplay=_coding_display(cond.get("code")),
+        clinicalStatus=_coding_display(cond.get("clinicalStatus"))
+        if cond.get("clinicalStatus")
+        else None,
+        verificationStatus=_coding_display(cond.get("verificationStatus"))
+        if cond.get("verificationStatus")
+        else None,
+        onset=cond.get("onsetDateTime") or cond.get("recordedDate"),
+    )
+    return model.model_dump(by_alias=True)
+
+
+def medication_request_to_json(med: dict[str, Any]) -> dict[str, Any]:
+    if "medicationCodeableConcept" in med:
+        drug = _coding_display(med["medicationCodeableConcept"])
+    else:
+        drug = med.get("medicationReference", {}).get("display", "unknown medication")
+
+    dosage_text = None
+    instructions = med.get("dosageInstruction") or []
+    if instructions and instructions[0].get("text"):
+        dosage_text = instructions[0]["text"]
+
+    model = models.MedicationRequestJson(
+        id=str(med.get("id", "?")),
+        drug=drug,
+        status=med.get("status"),
+        authoredOn=med.get("authoredOn"),
+        dosageText=dosage_text,
+    )
+    return model.model_dump(by_alias=True)
+
+
+def capability_to_json(cap: dict[str, Any], base_url: str) -> dict[str, Any]:
+    fhir_version = cap.get("fhirVersion", "unknown")
+
+    software = cap.get("software") or {}
+    impl = cap.get("implementation") or {}
+    rest_entries = cap.get("rest") or []
+
+    security_services: list[str] = []
+    resource_types: list[str] = []
+    if rest_entries:
+        first = rest_entries[0]
+        for svc in (first.get("security") or {}).get("service") or []:
+            label = _coding_display(svc)
+            if label and label != "unknown":
+                security_services.append(label)
+        for res in first.get("resource") or []:
+            rtype = res.get("type")
+            if rtype:
+                resource_types.append(rtype)
+
+    model = models.CapabilityJson(
+        baseUrl=base_url,
+        fhirVersion=fhir_version,
+        isR4=fhir_version.startswith("4"),
+        serverName=software.get("name"),
+        serverVersion=software.get("version"),
+        implementation=impl.get("description"),
+        securityServices=security_services,
+        resources=resource_types,
+    )
+    return model.model_dump(by_alias=True)
+
+
+_JSON_FORMATTERS = {
+    "Patient": patient_to_json,
+    "Observation": observation_to_json,
+    "Condition": condition_to_json,
+    "MedicationRequest": medication_request_to_json,
+}
+
+
+def resource_to_json(resource: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch a single resource to its JSON formatter."""
+    rtype = resource.get("resourceType", "")
+    fn = _JSON_FORMATTERS.get(rtype)
+    if fn is None:
+        return {
+            "resourceType": rtype or "Unknown",
+            "id": str(resource.get("id", "?")),
+        }
+    return fn(resource)
+
+
+def bundle_to_json(bundle: dict[str, Any]) -> dict[str, Any]:
+    """Envelope: total, returned count, resources, and pagination cursor."""
+    entries = bundle.get("entry") or []
+    resources = [resource_to_json(e.get("resource", {})) for e in entries]
+    model = models.BundleJson(
+        total=bundle.get("total", 0),
+        returned=len(resources),
+        resources=resources,
+        nextPage=_next_link(bundle),
+    )
+    return model.model_dump(by_alias=True)
 
 
 def _next_link(bundle: dict[str, Any]) -> str | None:

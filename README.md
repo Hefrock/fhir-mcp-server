@@ -98,6 +98,12 @@ the pure modules (formatters, loinc, interactions) test with no I/O at all.
 
 All search tools accept an optional `count` (1–50, default 10).
 
+**Structured JSON output.** Every tool accepts an optional `format` parameter:
+`"text"` (default, human-readable summary) or `"json"` (structured document
+consumable by downstream agents). The JSON shapes are defined by Pydantic
+models in `src/fhir_mcp_server/models.py` and their schemas can be exported
+with `PatientJson.model_json_schema()` etc. for contract validation.
+
 ## ⏱️ Quickstart
 
 **Prerequisites:** Python 3.11+
