@@ -27,17 +27,31 @@ import httpx
 # seeded with synthetic patients. Override with FHIR_BASE_URL for any R4 server.
 FHIR_BASE_URL = os.getenv("FHIR_BASE_URL", "https://r4.smarthealthit.org")
 
+# Optional bearer token for FHIR servers that require authentication (e.g. Epic,
+# Cerner, or Meditech sandboxes). When set, every outgoing request carries an
+# Authorization: Bearer <token> header. Full SMART-on-FHIR OAuth is out of scope
+# for this transport layer — obtain the token externally and pass it in.
+FHIR_ACCESS_TOKEN = os.getenv("FHIR_ACCESS_TOKEN")
+
 # The FHIR media type tells the server we want JSON-encoded FHIR, not plain JSON.
 _HEADERS = {"Accept": "application/fhir+json"}
 
 _client: httpx.AsyncClient | None = None
 
 
+def _build_headers() -> dict[str, str]:
+    """Assemble request headers, injecting the bearer token when configured."""
+    headers = dict(_HEADERS)
+    if FHIR_ACCESS_TOKEN:
+        headers["Authorization"] = f"Bearer {FHIR_ACCESS_TOKEN}"
+    return headers
+
+
 def _get_client() -> httpx.AsyncClient:
     """Return the shared AsyncClient, creating it on first use."""
     global _client
     if _client is None or _client.is_closed:
-        _client = httpx.AsyncClient(headers=_HEADERS, timeout=30.0)
+        _client = httpx.AsyncClient(headers=_build_headers(), timeout=30.0)
     return _client
 
 

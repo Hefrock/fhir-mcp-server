@@ -137,6 +137,7 @@ def _isolate_client():
     the developer's machine can't change where requests are aimed.
     """
     fhir_client.FHIR_BASE_URL = FHIR_BASE
+    fhir_client.FHIR_ACCESS_TOKEN = None
     fhir_client._client = None
     yield
     fhir_client._client = None
