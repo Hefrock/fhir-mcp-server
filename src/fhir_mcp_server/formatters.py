@@ -174,6 +174,66 @@ def format_medication_request(med: dict[str, Any]) -> str:
 # Bundle formatting
 # ---------------------------------------------------------------------------
 
+def format_capability_statement(cap: dict[str, Any], base_url: str) -> str:
+    """
+    Summarize a FHIR CapabilityStatement (returned by GET /metadata).
+
+    Surfaces the fields that matter for a preflight check: FHIR version,
+    server software identification, security service (auth requirements),
+    and the set of supported resource types. Flags a non-R4 fhirVersion so
+    the user learns immediately that this server doesn't match what this
+    MCP server targets.
+    """
+    fhir_version = cap.get("fhirVersion", "unknown")
+
+    software = cap.get("software") or {}
+    sw_name = software.get("name", "unknown server")
+    sw_version = software.get("version")
+    sw_line = f"{sw_name} v{sw_version}" if sw_version else sw_name
+
+    impl = cap.get("implementation") or {}
+    description = impl.get("description")
+
+    # rest[0] is the standard shape; some servers publish multiple modes.
+    rest_entries = cap.get("rest") or []
+    security_services: list[str] = []
+    resource_types: list[str] = []
+    if rest_entries:
+        first = rest_entries[0]
+        security = first.get("security") or {}
+        for svc in security.get("service") or []:
+            label = _coding_display(svc)
+            if label and label != "unknown":
+                security_services.append(label)
+        for res in first.get("resource") or []:
+            rtype = res.get("type")
+            if rtype:
+                resource_types.append(rtype)
+
+    lines = [f"FHIR endpoint at {base_url}"]
+    lines.append(f"  Server: {sw_line}")
+    if description:
+        lines.append(f"  Implementation: {description}")
+
+    version_line = f"  FHIR version: {fhir_version}"
+    if fhir_version != "unknown" and not fhir_version.startswith("4"):
+        version_line += "  ⚠ this server does not report FHIR R4 (this tool targets R4)"
+    lines.append(version_line)
+
+    if security_services:
+        lines.append(f"  Security: {', '.join(security_services)}")
+    else:
+        lines.append("  Security: none advertised (open / unauthenticated)")
+
+    if resource_types:
+        lines.append(f"  Supported resources ({len(resource_types)}): "
+                     f"{', '.join(resource_types)}")
+    else:
+        lines.append("  Supported resources: none advertised")
+
+    return "\n".join(lines)
+
+
 _FORMATTERS = {
     "Patient": format_patient,
     "Observation": format_observation,

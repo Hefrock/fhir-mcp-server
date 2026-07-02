@@ -83,6 +83,7 @@ the pure modules (formatters, loinc, interactions) test with no I/O at all.
 
 | Tool | FHIR interaction | Key parameters |
 |---|---|---|
+| `check_connection` | `GET /metadata` | *(none)* |
 | `read_patient` | `GET /Patient/{id}` | `patient_id` |
 | `search_patients` | `GET /Patient?...` | `name`, `family`, `given`, `birthdate`, `identifier` |
 | `read_observation` | `GET /Observation/{id}` | `observation_id` |

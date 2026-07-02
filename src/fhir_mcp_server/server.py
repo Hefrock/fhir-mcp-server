@@ -35,7 +35,9 @@ mcp = FastMCP(
         "The check_medication_interactions tool flags known drug interactions "
         "from a local reference set (not for clinical use). "
         "Search results include a 'Next page' URL when more results exist; "
-        "pass it to get_next_page to fetch the following page."
+        "pass it to get_next_page to fetch the following page. "
+        "Call check_connection first when pointing at a new endpoint to confirm "
+        "the server is reachable, speaks R4, and to see its supported resources."
     ),
 )
 
@@ -81,6 +83,26 @@ def fhir_tool(func: Callable) -> Callable:
 def _capped_count(count: int) -> str:
     """FHIR _count param, capped at 50 to keep responses bounded."""
     return str(max(1, min(count, 50)))
+
+
+# ---------------------------------------------------------------------------
+# Connection preflight
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def check_connection() -> str:
+    """
+    Verify the FHIR server is reachable and describe its capabilities.
+
+    Fetches the server's CapabilityStatement from /metadata and returns a
+    summary: FHIR version, server software, security requirements, and the
+    list of supported resource types. Call this first when pointing at a new
+    endpoint to confirm the connection works and the server actually speaks R4.
+    """
+    cap = await fhir_client.get_capability_statement()
+    return formatters.format_capability_statement(cap, fhir_client.FHIR_BASE_URL)
 
 
 # ---------------------------------------------------------------------------
