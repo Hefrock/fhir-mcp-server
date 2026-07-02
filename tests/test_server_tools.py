@@ -10,6 +10,7 @@ the outgoing request params and assert on them.
 import httpx
 
 from fhir_mcp_server.server import (
+    check_connection,
     check_medication_interactions,
     get_next_page,
     get_patient_summary,
@@ -22,6 +23,7 @@ from fhir_mcp_server.server import (
 )
 
 from .conftest import (
+    SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION_BUNDLE,
     SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
@@ -280,3 +282,22 @@ class TestGetPatientSummary:
         )
         result = await get_patient_summary("missing")
         assert "Could not retrieve Patient missing" in result
+
+
+class TestCheckConnection:
+    async def test_reports_server_capabilities(self, mock_fhir):
+        mock_fhir.get("/metadata").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CAPABILITY_STATEMENT)
+        )
+        result = await check_connection()
+        assert "HAPI FHIR Server v5.4.0" in result
+        assert "FHIR version: 4.0.1" in result
+        assert "SMART-on-FHIR" in result
+        assert "Patient" in result
+
+    async def test_reports_friendly_error_on_metadata_failure(self, mock_fhir):
+        mock_fhir.get("/metadata").mock(
+            return_value=httpx.Response(503, text="down")
+        )
+        result = await check_connection()
+        assert "503" in result

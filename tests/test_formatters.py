@@ -8,6 +8,8 @@ oddly-shaped fields, since real FHIR data is wildly inconsistent.
 from fhir_mcp_server import formatters
 
 from .conftest import (
+    FHIR_BASE,
+    SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION,
     SAMPLE_MEDICATION,
     SAMPLE_OBSERVATION,
@@ -103,3 +105,40 @@ class TestFormatBundle:
     def test_no_next_link_when_absent(self):
         out = formatters.format_bundle(SAMPLE_OBSERVATION_BUNDLE)
         assert "Next page" not in out
+
+
+class TestFormatCapabilityStatement:
+    def test_summary_includes_key_fields(self):
+        out = formatters.format_capability_statement(
+            SAMPLE_CAPABILITY_STATEMENT, FHIR_BASE
+        )
+        assert FHIR_BASE in out
+        assert "HAPI FHIR Server v5.4.0" in out
+        assert "SMART R4 Sandbox" in out
+        assert "FHIR version: 4.0.1" in out
+        assert "SMART-on-FHIR" in out
+        # All 4 sample resource types should appear
+        assert "Patient" in out
+        assert "Observation" in out
+        assert "Condition" in out
+        assert "MedicationRequest" in out
+
+    def test_flags_non_r4_version(self):
+        cap = {**SAMPLE_CAPABILITY_STATEMENT, "fhirVersion": "3.0.2"}
+        out = formatters.format_capability_statement(cap, FHIR_BASE)
+        assert "3.0.2" in out
+        assert "does not report FHIR R4" in out
+
+    def test_open_server_when_no_security_service(self):
+        cap = {**SAMPLE_CAPABILITY_STATEMENT, "rest": [{"mode": "server"}]}
+        out = formatters.format_capability_statement(cap, FHIR_BASE)
+        assert "open" in out.lower() or "unauthenticated" in out.lower()
+
+    def test_tolerates_bare_minimum_capability(self):
+        # A conformant CapabilityStatement can omit software, implementation,
+        # rest, and even fhirVersion. Formatter must not crash.
+        out = formatters.format_capability_statement(
+            {"resourceType": "CapabilityStatement"}, FHIR_BASE
+        )
+        assert FHIR_BASE in out
+        assert "unknown" in out

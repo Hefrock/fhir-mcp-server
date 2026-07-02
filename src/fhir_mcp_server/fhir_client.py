@@ -81,6 +81,20 @@ async def search_resources(
     return response.json()
 
 
+async def get_capability_statement() -> dict[str, Any]:
+    """
+    Fetch the server's CapabilityStatement from GET {FHIR_BASE_URL}/metadata.
+
+    Every conformant FHIR server exposes this resource — it advertises the FHIR
+    version, supported resource types, and security requirements. Used by the
+    check_connection tool to sanity-check a new endpoint before running clinical
+    queries.
+    """
+    response = await _get_client().get(f"{FHIR_BASE_URL}/metadata")
+    response.raise_for_status()
+    return response.json()
+
+
 async def fetch_next_page(url: str) -> dict[str, Any]:
     """
     Fetch a pre-formed FHIR pagination URL.

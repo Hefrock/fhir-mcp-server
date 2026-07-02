@@ -121,6 +121,47 @@ SAMPLE_MEDICATION_BUNDLE = {
 }
 
 
+SAMPLE_CAPABILITY_STATEMENT = {
+    "resourceType": "CapabilityStatement",
+    "status": "active",
+    "date": "2024-01-01",
+    "publisher": "SMART Health IT",
+    "kind": "instance",
+    "software": {"name": "HAPI FHIR Server", "version": "5.4.0"},
+    "implementation": {
+        "description": "SMART R4 Sandbox",
+        "url": FHIR_BASE,
+    },
+    "fhirVersion": "4.0.1",
+    "format": ["json", "xml"],
+    "rest": [
+        {
+            "mode": "server",
+            "security": {
+                "cors": True,
+                "service": [
+                    {
+                        "coding": [
+                            {
+                                "system": "http://terminology.hl7.org/CodeSystem/restful-security-service",
+                                "code": "SMART-on-FHIR",
+                                "display": "SMART-on-FHIR",
+                            }
+                        ]
+                    }
+                ],
+            },
+            "resource": [
+                {"type": "Patient"},
+                {"type": "Observation"},
+                {"type": "Condition"},
+                {"type": "MedicationRequest"},
+            ],
+        }
+    ],
+}
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

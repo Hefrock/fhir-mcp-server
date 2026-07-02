@@ -13,6 +13,7 @@ import pytest
 from fhir_mcp_server import fhir_client
 
 from .conftest import (
+    SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
     SAMPLE_PATIENT,
@@ -118,3 +119,18 @@ class TestBearerToken:
         )
         await fhir_client.search_resources("Patient", {"family": "Smith"})
         assert captured["auth"] == "Bearer search-token"
+
+
+class TestCapabilityStatement:
+    async def test_fetches_metadata_endpoint(self, mock_fhir):
+        mock_fhir.get("/metadata").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CAPABILITY_STATEMENT)
+        )
+        result = await fhir_client.get_capability_statement()
+        assert result["resourceType"] == "CapabilityStatement"
+        assert result["fhirVersion"] == "4.0.1"
+
+    async def test_raises_on_metadata_error(self, mock_fhir):
+        mock_fhir.get("/metadata").mock(return_value=httpx.Response(503, text="down"))
+        with pytest.raises(httpx.HTTPStatusError):
+            await fhir_client.get_capability_statement()
