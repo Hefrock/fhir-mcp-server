@@ -20,6 +20,40 @@ exchange is what matters.
 
 ---
 
+## 0. Preflight — confirm the server before running queries
+
+Call `check_connection` first when pointing at a new FHIR endpoint. It hits
+`GET /metadata`, reports what the server supports, and immediately flags a
+non-R4 endpoint before you send it a real query.
+
+```
+You:    Confirm the FHIR server is reachable.
+
+Claude: [calls check_connection()]
+
+        FHIR endpoint at https://r4.smarthealthit.org
+          Server: HAPI FHIR Server v5.4.0
+          Implementation: SMART R4 Sandbox
+          FHIR version: 4.0.1
+          Security: SMART-on-FHIR
+          Supported resources (145): Patient, Observation, Condition,
+          MedicationRequest, AllergyIntolerance, Immunization, ...
+
+        The sandbox is up, speaks R4, and supports the resource types we
+        query. Ready.
+```
+
+For an authenticated endpoint, set `FHIR_ACCESS_TOKEN` before launching the
+server:
+
+```bash
+FHIR_BASE_URL=https://api.example.com/fhir \
+FHIR_ACCESS_TOKEN=eyJhbGciOi... \
+fhir-mcp-server
+```
+
+Every outgoing request then carries `Authorization: Bearer <token>`.
+
 ## 1. Find a patient, then summarize them
 
 ```
@@ -164,3 +198,64 @@ Claude: [calls get_patient_summary(patient_id="1a2b")]
 
 If any single section can't be retrieved, it shows "none found" and the rest of
 the summary still renders — one failed sub-query never blanks the whole report.
+
+## 7. Structured JSON output for downstream agents
+
+Every tool accepts `format="json"` to return a machine-parseable document
+instead of a human summary. This is the interface higher layers (patient-state
+synthesis, clinical reasoning) consume.
+
+```
+You:    (via an L3 patient-state agent, not a human)
+
+Agent:  [calls search_medications(patient="1a2b", status="active", format="json")]
+
+        {
+          "total": 2,
+          "returned": 2,
+          "resources": [
+            {
+              "id": "m-war",
+              "resourceType": "MedicationRequest",
+              "drug": "Warfarin 5 mg oral tablet",
+              "status": "active",
+              "authoredOn": "2023-11-02",
+              "dosageText": "Take 5 mg once daily"
+            },
+            {
+              "id": "m-asa",
+              "resourceType": "MedicationRequest",
+              "drug": "Aspirin 81 mg oral tablet",
+              "status": "active",
+              "authoredOn": "2023-11-02",
+              "dosageText": "Take 81 mg once daily"
+            }
+          ],
+          "nextPage": null
+        }
+
+        # The agent iterates, filters by status, joins with interaction data.
+        # No regex-parsing prose. No FHIR-JSON traversal.
+```
+
+The exact shapes are defined by Pydantic models in
+`src/fhir_mcp_server/models.py` and can be exported as JSON Schema
+(`PatientJson.model_json_schema()`, etc.) for contract validation on the
+consumer side.
+
+`get_patient_summary(patient_id, format="json")` returns the composed shape:
+
+```json
+{
+  "patient": { "id": "1a2b", "name": "John Smith", ... },
+  "activeConditions": [ { "id": "c-htn", "codeDisplay": "Hypertension", ... } ],
+  "recentVitals": [ { "id": "o-441", "value": { "quantity": 72, "unit": "beats/minute" }, ... } ],
+  "activeMedications": [ ... ],
+  "interactionWarnings": [
+    { "severity": "MAJOR", "drugA": "warfarin", "drugB": "aspirin",
+      "description": "Additive bleeding risk; ..." }
+  ]
+}
+```
+
+Same information as the text summary — different consumer, different shape.
