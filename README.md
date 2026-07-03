@@ -90,6 +90,10 @@ the pure modules (formatters, loinc, interactions) test with no I/O at all.
 | `search_observations` | `GET /Observation?...` | `patient`, `code`*, `category`, `date` |
 | `search_conditions` | `GET /Condition?...` | `patient`, `clinical_status` |
 | `search_medications` | `GET /MedicationRequest?...` | `patient`, `status` |
+| `read_encounter` | `GET /Encounter/{id}` | `encounter_id` |
+| `search_encounters` | `GET /Encounter?...` | `patient`, `status`, `date` |
+| `read_allergy_intolerance` | `GET /AllergyIntolerance/{id}` | `allergy_id` |
+| `search_allergy_intolerances` | `GET /AllergyIntolerance?...` | `patient`, `clinical_status`, `category`, `criticality` |
 | `check_medication_interactions` | *(local, no network)* | `medications: list[str]` |
 | `get_patient_summary` | *(4 calls, concurrent)* | `patient_id` |
 

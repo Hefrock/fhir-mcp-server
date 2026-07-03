@@ -30,9 +30,10 @@ from . import fhir_client, formatters, interactions, loinc_codes
 mcp = FastMCP(
     "FHIR R4",
     instructions=(
-        "Query a FHIR R4 server for Patients, Observations, Conditions, and "
-        "MedicationRequests. Use search tools to find resources by demographic "
-        "or clinical criteria, then read tools to retrieve full details by id. "
+        "Query a FHIR R4 server for Patients, Observations, Conditions, "
+        "MedicationRequests, Encounters (visits), and AllergyIntolerance "
+        "records. Use search tools to find resources by demographic or "
+        "clinical criteria, then read tools to retrieve full details by id. "
         "The check_medication_interactions tool flags known drug interactions "
         "from a local reference set (not for clinical use). "
         "Search results include a 'Next page' URL when more results exist; "
@@ -385,6 +386,128 @@ async def check_medication_interactions(
         )
     lines.append("(Local reference set only — not for clinical use.)")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Encounter tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def read_encounter(encounter_id: str, format: str = "text") -> str:
+    """
+    Fetch a single Encounter by FHIR id and return a readable summary.
+
+    An Encounter is a healthcare visit — an outpatient appointment, an ED
+    visit, an inpatient admission. Summarizes type, class (setting), status,
+    and time window.
+
+    - format: "text" (default) or "json".
+    """
+    fmt = _validate_format(format)
+    resource = await fhir_client.read_resource("Encounter", encounter_id)
+    if fmt == "json":
+        return _json(formatters.encounter_to_json(resource))
+    return formatters.format_encounter(resource)
+
+
+@mcp.tool()
+@fhir_tool
+async def search_encounters(
+    patient: Optional[str] = None,
+    status: Optional[str] = None,
+    date: Optional[str] = None,
+    count: int = 10,
+    format: str = "text",
+) -> str:
+    """
+    Search for Encounters (healthcare visits).
+
+      - patient : patient id (or Patient/{id}) to filter by subject
+      - status  : "planned", "in-progress", "finished", "cancelled", etc.
+      - date    : ISO date or range, e.g. "ge2024-01-01"
+      - count   : max results (default 10, max 50)
+      - format  : "text" (default) or "json" for a bundle envelope
+
+    Returns one summary line per encounter with its type, class, and window.
+    """
+    fmt = _validate_format(format)
+    params: dict[str, str] = {"_count": _capped_count(count)}
+    if patient is not None:
+        params["patient"] = patient
+    if status is not None:
+        params["status"] = status
+    if date is not None:
+        params["date"] = date
+
+    bundle = await fhir_client.search_resources("Encounter", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
+    return formatters.format_bundle(bundle)
+
+
+# ---------------------------------------------------------------------------
+# AllergyIntolerance tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def read_allergy_intolerance(allergy_id: str, format: str = "text") -> str:
+    """
+    Fetch a single AllergyIntolerance by FHIR id and return a readable summary.
+
+    AllergyIntolerance records a documented sensitivity — food, medication,
+    environmental, or biologic. Summarizes substance, criticality, clinical
+    status, and the recorded reaction if any.
+
+    - format: "text" (default) or "json".
+    """
+    fmt = _validate_format(format)
+    resource = await fhir_client.read_resource("AllergyIntolerance", allergy_id)
+    if fmt == "json":
+        return _json(formatters.allergy_intolerance_to_json(resource))
+    return formatters.format_allergy_intolerance(resource)
+
+
+@mcp.tool()
+@fhir_tool
+async def search_allergy_intolerances(
+    patient: Optional[str] = None,
+    clinical_status: Optional[str] = None,
+    category: Optional[str] = None,
+    criticality: Optional[str] = None,
+    count: int = 10,
+    format: str = "text",
+) -> str:
+    """
+    Search for AllergyIntolerance records.
+
+      - patient        : patient id (or Patient/{id}) to filter by subject
+      - clinical_status: "active", "inactive", "resolved"
+      - category       : "food", "medication", "environment", or "biologic"
+      - criticality    : "low", "high", or "unable-to-assess"
+      - count          : max results (default 10, max 50)
+      - format         : "text" (default) or "json" for a bundle envelope
+
+    Returns one summary line per allergy with its substance and reaction.
+    """
+    fmt = _validate_format(format)
+    params: dict[str, str] = {"_count": _capped_count(count)}
+    if patient is not None:
+        params["patient"] = patient
+    if clinical_status is not None:
+        params["clinical-status"] = clinical_status
+    if category is not None:
+        params["category"] = category
+    if criticality is not None:
+        params["criticality"] = criticality
+
+    bundle = await fhir_client.search_resources("AllergyIntolerance", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
+    return formatters.format_bundle(bundle)
 
 
 # ---------------------------------------------------------------------------

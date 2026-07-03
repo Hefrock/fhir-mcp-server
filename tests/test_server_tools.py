@@ -14,17 +14,25 @@ from fhir_mcp_server.server import (
     check_medication_interactions,
     get_next_page,
     get_patient_summary,
+    read_allergy_intolerance,
+    read_encounter,
     read_observation,
     read_patient,
+    search_allergy_intolerances,
     search_conditions,
+    search_encounters,
     search_medications,
     search_observations,
     search_patients,
 )
 
 from .conftest import (
+    SAMPLE_ALLERGY,
+    SAMPLE_ALLERGY_BUNDLE,
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION_BUNDLE,
+    SAMPLE_ENCOUNTER,
+    SAMPLE_ENCOUNTER_BUNDLE,
     SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
@@ -301,3 +309,68 @@ class TestCheckConnection:
         )
         result = await check_connection()
         assert "503" in result
+
+
+class TestReadEncounter:
+    async def test_returns_readable_summary(self, mock_fhir):
+        mock_fhir.get("/Encounter/enc-ambulatory-1").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ENCOUNTER)
+        )
+        result = await read_encounter("enc-ambulatory-1")
+        assert "Primary care visit" in result
+        assert "ambulatory" in result
+
+
+class TestSearchEncounters:
+    async def test_patient_search_lists_visits(self, mock_fhir):
+        mock_fhir.get("/Encounter").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ENCOUNTER_BUNDLE)
+        )
+        result = await search_encounters(patient="example")
+        assert "Primary care visit" in result
+
+    async def test_status_and_date_params_passed(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/Encounter").mock(
+            side_effect=_capture(captured, SAMPLE_ENCOUNTER_BUNDLE)
+        )
+        await search_encounters(
+            patient="example", status="finished", date="ge2024-01-01"
+        )
+        assert captured["params"]["status"] == "finished"
+        assert captured["params"]["date"] == "ge2024-01-01"
+
+
+class TestReadAllergyIntolerance:
+    async def test_returns_readable_summary(self, mock_fhir):
+        mock_fhir.get("/AllergyIntolerance/allergy-penicillin").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ALLERGY)
+        )
+        result = await read_allergy_intolerance("allergy-penicillin")
+        assert "Penicillin" in result
+        assert "medication" in result
+        assert "Hives" in result
+
+
+class TestSearchAllergyIntolerances:
+    async def test_patient_search_lists_allergies(self, mock_fhir):
+        mock_fhir.get("/AllergyIntolerance").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ALLERGY_BUNDLE)
+        )
+        result = await search_allergy_intolerances(patient="example")
+        assert "Penicillin" in result
+
+    async def test_all_filters_passed_through(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/AllergyIntolerance").mock(
+            side_effect=_capture(captured, SAMPLE_ALLERGY_BUNDLE)
+        )
+        await search_allergy_intolerances(
+            patient="example",
+            clinical_status="active",
+            category="medication",
+            criticality="high",
+        )
+        assert captured["params"]["clinical-status"] == "active"
+        assert captured["params"]["category"] == "medication"
+        assert captured["params"]["criticality"] == "high"
