@@ -21,12 +21,16 @@ from fhir_mcp_server.server import (
     get_next_page,
     get_patient_summary,
     read_allergy_intolerance,
+    read_diagnostic_report,
     read_encounter,
+    read_immunization,
     read_observation,
     read_patient,
     search_allergy_intolerances,
     search_conditions,
+    search_diagnostic_reports,
     search_encounters,
+    search_immunizations,
     search_medications,
     search_observations,
     search_patients,
@@ -39,8 +43,12 @@ from .conftest import (
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION,
     SAMPLE_CONDITION_BUNDLE,
+    SAMPLE_DIAGNOSTIC_REPORT,
+    SAMPLE_DIAGNOSTIC_REPORT_BUNDLE,
     SAMPLE_ENCOUNTER,
     SAMPLE_ENCOUNTER_BUNDLE,
+    SAMPLE_IMMUNIZATION,
+    SAMPLE_IMMUNIZATION_BUNDLE,
     SAMPLE_MEDICATION,
     SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
@@ -448,3 +456,84 @@ class TestSearchAllergiesJson:
         parsed = json.loads(result)
         assert parsed["returned"] == 1
         assert parsed["resources"][0]["substance"] == "Penicillin"
+
+
+class TestDiagnosticReportToJson:
+    def test_shape(self):
+        out = formatters.diagnostic_report_to_json(SAMPLE_DIAGNOSTIC_REPORT)
+        assert out["id"] == "dr-cbc-1"
+        assert out["resourceType"] == "DiagnosticReport"
+        assert out["codeDisplay"] == "Complete blood count"
+        assert out["category"] == "Laboratory"
+        assert out["status"] == "final"
+        assert out["conclusion"] == "Normal CBC. No cytopenias."
+        assert out["performer"] == "Community Labs"
+        assert len(out["resultReferences"]) == 2
+        assert "Observation/obs-hgb" in out["resultReferences"]
+
+    def test_tolerates_missing_fields(self):
+        out = formatters.diagnostic_report_to_json(
+            {"resourceType": "DiagnosticReport", "id": "r"}
+        )
+        assert out["id"] == "r"
+        assert out["conclusion"] is None
+        assert out["resultReferences"] == []
+
+
+class TestImmunizationToJson:
+    def test_shape(self):
+        out = formatters.immunization_to_json(SAMPLE_IMMUNIZATION)
+        assert out["id"] == "imm-flu-2024"
+        assert out["resourceType"] == "Immunization"
+        assert "Influenza" in out["vaccine"]
+        assert out["status"] == "completed"
+        assert out["occurrence"] == "2024-10-15"
+        assert out["lotNumber"] == "AB123CD"
+        assert out["route"] == "Intramuscular"
+        assert out["site"] == "Left deltoid"
+        assert out["doseQuantity"] == 0.5
+        assert out["doseUnit"] == "mL"
+
+
+class TestReadDiagnosticReportJson:
+    async def test_returns_parseable_json(self, mock_fhir):
+        mock_fhir.get("/DiagnosticReport/dr-cbc-1").mock(
+            return_value=httpx.Response(200, json=SAMPLE_DIAGNOSTIC_REPORT)
+        )
+        result = await read_diagnostic_report("dr-cbc-1", format="json")
+        parsed = json.loads(result)
+        assert parsed["codeDisplay"] == "Complete blood count"
+        assert parsed["conclusion"] == "Normal CBC. No cytopenias."
+
+
+class TestSearchDiagnosticReportsJson:
+    async def test_bundle_envelope(self, mock_fhir):
+        mock_fhir.get("/DiagnosticReport").mock(
+            return_value=httpx.Response(200, json=SAMPLE_DIAGNOSTIC_REPORT_BUNDLE)
+        )
+        result = await search_diagnostic_reports(patient="example", format="json")
+        parsed = json.loads(result)
+        assert parsed["returned"] == 1
+        assert parsed["resources"][0]["codeDisplay"] == "Complete blood count"
+
+
+class TestReadImmunizationJson:
+    async def test_returns_parseable_json(self, mock_fhir):
+        mock_fhir.get("/Immunization/imm-flu-2024").mock(
+            return_value=httpx.Response(200, json=SAMPLE_IMMUNIZATION)
+        )
+        result = await read_immunization("imm-flu-2024", format="json")
+        parsed = json.loads(result)
+        assert "Influenza" in parsed["vaccine"]
+        assert parsed["lotNumber"] == "AB123CD"
+
+
+class TestSearchImmunizationsJson:
+    async def test_bundle_envelope(self, mock_fhir):
+        mock_fhir.get("/Immunization").mock(
+            return_value=httpx.Response(200, json=SAMPLE_IMMUNIZATION_BUNDLE)
+        )
+        result = await search_immunizations(patient="example", format="json")
+        parsed = json.loads(result)
+        assert parsed["returned"] == 1
+        assert "Influenza" in parsed["resources"][0]["vaccine"]

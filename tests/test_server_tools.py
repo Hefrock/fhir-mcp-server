@@ -15,12 +15,16 @@ from fhir_mcp_server.server import (
     get_next_page,
     get_patient_summary,
     read_allergy_intolerance,
+    read_diagnostic_report,
     read_encounter,
+    read_immunization,
     read_observation,
     read_patient,
     search_allergy_intolerances,
     search_conditions,
+    search_diagnostic_reports,
     search_encounters,
+    search_immunizations,
     search_medications,
     search_observations,
     search_patients,
@@ -31,8 +35,12 @@ from .conftest import (
     SAMPLE_ALLERGY_BUNDLE,
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION_BUNDLE,
+    SAMPLE_DIAGNOSTIC_REPORT,
+    SAMPLE_DIAGNOSTIC_REPORT_BUNDLE,
     SAMPLE_ENCOUNTER,
     SAMPLE_ENCOUNTER_BUNDLE,
+    SAMPLE_IMMUNIZATION,
+    SAMPLE_IMMUNIZATION_BUNDLE,
     SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
@@ -374,3 +382,72 @@ class TestSearchAllergyIntolerances:
         assert captured["params"]["clinical-status"] == "active"
         assert captured["params"]["category"] == "medication"
         assert captured["params"]["criticality"] == "high"
+
+
+class TestReadDiagnosticReport:
+    async def test_returns_readable_summary(self, mock_fhir):
+        mock_fhir.get("/DiagnosticReport/dr-cbc-1").mock(
+            return_value=httpx.Response(200, json=SAMPLE_DIAGNOSTIC_REPORT)
+        )
+        result = await read_diagnostic_report("dr-cbc-1")
+        assert "Complete blood count" in result
+        assert "Normal CBC" in result
+
+
+class TestSearchDiagnosticReports:
+    async def test_patient_search_lists_reports(self, mock_fhir):
+        mock_fhir.get("/DiagnosticReport").mock(
+            return_value=httpx.Response(200, json=SAMPLE_DIAGNOSTIC_REPORT_BUNDLE)
+        )
+        result = await search_diagnostic_reports(patient="example")
+        assert "Complete blood count" in result
+
+    async def test_friendly_code_resolves_to_loinc(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/DiagnosticReport").mock(
+            side_effect=_capture(captured, SAMPLE_DIAGNOSTIC_REPORT_BUNDLE)
+        )
+        await search_diagnostic_reports(patient="example", code="hemoglobin_a1c")
+        # loinc_codes.resolve turns hemoglobin_a1c into 4548-4
+        assert captured["params"]["code"] == "4548-4"
+
+    async def test_status_and_date_passed(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/DiagnosticReport").mock(
+            side_effect=_capture(captured, SAMPLE_DIAGNOSTIC_REPORT_BUNDLE)
+        )
+        await search_diagnostic_reports(
+            patient="example", status="final", date="ge2024-01-01"
+        )
+        assert captured["params"]["status"] == "final"
+        assert captured["params"]["date"] == "ge2024-01-01"
+
+
+class TestReadImmunization:
+    async def test_returns_readable_summary(self, mock_fhir):
+        mock_fhir.get("/Immunization/imm-flu-2024").mock(
+            return_value=httpx.Response(200, json=SAMPLE_IMMUNIZATION)
+        )
+        result = await read_immunization("imm-flu-2024")
+        assert "Influenza vaccine" in result
+        assert "2024-10-15" in result
+
+
+class TestSearchImmunizations:
+    async def test_patient_search_lists_vaccines(self, mock_fhir):
+        mock_fhir.get("/Immunization").mock(
+            return_value=httpx.Response(200, json=SAMPLE_IMMUNIZATION_BUNDLE)
+        )
+        result = await search_immunizations(patient="example")
+        assert "Influenza vaccine" in result
+
+    async def test_status_and_date_passed(self, mock_fhir):
+        captured: dict = {}
+        mock_fhir.get("/Immunization").mock(
+            side_effect=_capture(captured, SAMPLE_IMMUNIZATION_BUNDLE)
+        )
+        await search_immunizations(
+            patient="example", status="completed", date="ge2024-01-01"
+        )
+        assert captured["params"]["status"] == "completed"
+        assert captured["params"]["date"] == "ge2024-01-01"

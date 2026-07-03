@@ -31,9 +31,10 @@ mcp = FastMCP(
     "FHIR R4",
     instructions=(
         "Query a FHIR R4 server for Patients, Observations, Conditions, "
-        "MedicationRequests, Encounters (visits), and AllergyIntolerance "
-        "records. Use search tools to find resources by demographic or "
-        "clinical criteria, then read tools to retrieve full details by id. "
+        "MedicationRequests, Encounters (visits), AllergyIntolerance records, "
+        "DiagnosticReports (labs, imaging, pathology), and Immunizations. "
+        "Use search tools to find resources by demographic or clinical "
+        "criteria, then read tools to retrieve full details by id. "
         "The check_medication_interactions tool flags known drug interactions "
         "from a local reference set (not for clinical use). "
         "Search results include a 'Next page' URL when more results exist; "
@@ -505,6 +506,133 @@ async def search_allergy_intolerances(
         params["criticality"] = criticality
 
     bundle = await fhir_client.search_resources("AllergyIntolerance", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
+    return formatters.format_bundle(bundle)
+
+
+# ---------------------------------------------------------------------------
+# DiagnosticReport tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def read_diagnostic_report(report_id: str, format: str = "text") -> str:
+    """
+    Fetch a single DiagnosticReport by FHIR id and return a readable summary.
+
+    A DiagnosticReport groups related Observations under a single report —
+    a CBC panel, an imaging study, a pathology report. Summarizes report type,
+    status, effective date, and conclusion when present.
+
+    - format: "text" (default) or "json".
+    """
+    fmt = _validate_format(format)
+    resource = await fhir_client.read_resource("DiagnosticReport", report_id)
+    if fmt == "json":
+        return _json(formatters.diagnostic_report_to_json(resource))
+    return formatters.format_diagnostic_report(resource)
+
+
+@mcp.tool()
+@fhir_tool
+async def search_diagnostic_reports(
+    patient: Optional[str] = None,
+    category: Optional[str] = None,
+    code: Optional[str] = None,
+    status: Optional[str] = None,
+    date: Optional[str] = None,
+    count: int = 10,
+    format: str = "text",
+) -> str:
+    """
+    Search for DiagnosticReports.
+
+      - patient : patient id (or Patient/{id}) to filter by subject
+      - category: "LAB", "RAD", "PATH", etc. (report classification)
+      - code    : LOINC code (or friendly name like "hemoglobin_a1c") for the
+                  specific report type
+      - status  : "registered", "partial", "preliminary", "final", "amended"
+      - date    : ISO date or range, e.g. "ge2024-01-01"
+      - count   : max results (default 10, max 50)
+      - format  : "text" (default) or "json" for a bundle envelope
+
+    Returns one summary line per report with its code, category, and conclusion.
+    """
+    fmt = _validate_format(format)
+    params: dict[str, str] = {"_count": _capped_count(count)}
+    if patient is not None:
+        params["patient"] = patient
+    if category is not None:
+        params["category"] = category
+    if code is not None:
+        params["code"] = loinc_codes.resolve(code)
+    if status is not None:
+        params["status"] = status
+    if date is not None:
+        params["date"] = date
+
+    bundle = await fhir_client.search_resources("DiagnosticReport", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
+    return formatters.format_bundle(bundle)
+
+
+# ---------------------------------------------------------------------------
+# Immunization tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+@fhir_tool
+async def read_immunization(immunization_id: str, format: str = "text") -> str:
+    """
+    Fetch a single Immunization by FHIR id and return a readable summary.
+
+    Immunization records a vaccine dose administered (or not given, with
+    reason). Summarizes vaccine, occurrence date, status, route, site, and
+    dose quantity when recorded.
+
+    - format: "text" (default) or "json".
+    """
+    fmt = _validate_format(format)
+    resource = await fhir_client.read_resource("Immunization", immunization_id)
+    if fmt == "json":
+        return _json(formatters.immunization_to_json(resource))
+    return formatters.format_immunization(resource)
+
+
+@mcp.tool()
+@fhir_tool
+async def search_immunizations(
+    patient: Optional[str] = None,
+    status: Optional[str] = None,
+    date: Optional[str] = None,
+    count: int = 10,
+    format: str = "text",
+) -> str:
+    """
+    Search for Immunizations (vaccine administrations).
+
+      - patient : patient id (or Patient/{id}) to filter by subject
+      - status  : "completed", "entered-in-error", "not-done"
+      - date    : ISO date or range, e.g. "ge2024-01-01"
+      - count   : max results (default 10, max 50)
+      - format  : "text" (default) or "json" for a bundle envelope
+
+    Returns one summary line per vaccine dose administered.
+    """
+    fmt = _validate_format(format)
+    params: dict[str, str] = {"_count": _capped_count(count)}
+    if patient is not None:
+        params["patient"] = patient
+    if status is not None:
+        params["status"] = status
+    if date is not None:
+        params["date"] = date
+
+    bundle = await fhir_client.search_resources("Immunization", params)
     if fmt == "json":
         return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)

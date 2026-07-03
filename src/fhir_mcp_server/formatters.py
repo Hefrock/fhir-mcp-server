@@ -202,6 +202,57 @@ def format_encounter(enc: dict[str, Any]) -> str:
     )
 
 
+def format_diagnostic_report(r: dict[str, Any]) -> str:
+    """Summary: report type/code, status, effective date, and conclusion."""
+    rid = r.get("id", "?")
+    label = _coding_display(r.get("code"))
+    categories = r.get("category") or []
+    category = _coding_display(categories[0]) if categories else "unknown category"
+    status = r.get("status", "unknown")
+    when = r.get("effectiveDateTime") or r.get("issued", "unknown time")
+    performers = r.get("performer") or []
+    performer_str = ""
+    if performers:
+        p_display = performers[0].get("display") or performers[0].get("reference")
+        if p_display:
+            performer_str = f" by {p_display}"
+    results = r.get("result") or []
+    result_str = f" — {len(results)} result(s)" if results else ""
+    conclusion = r.get("conclusion")
+    conclusion_str = f" — {conclusion}" if conclusion else ""
+    return (
+        f"[DiagnosticReport {rid}] {label} ({category}, {status}, "
+        f"{when}){performer_str}{result_str}{conclusion_str}"
+    )
+
+
+def format_immunization(imm: dict[str, Any]) -> str:
+    """Summary: vaccine, occurrence date, status, and route/dose if recorded."""
+    iid = imm.get("id", "?")
+    vaccine = _coding_display(imm.get("vaccineCode"))
+    status = imm.get("status", "unknown")
+    when = (
+        imm.get("occurrenceDateTime") or imm.get("occurrenceString") or "unknown date"
+    )
+    route = _coding_display(imm.get("route")) if imm.get("route") else None
+    site = _coding_display(imm.get("site")) if imm.get("site") else None
+    dose = imm.get("doseQuantity") or {}
+    dose_str = ""
+    if dose.get("value") is not None:
+        dose_str = f" {dose.get('value')} {dose.get('unit', '')}".rstrip()
+
+    extras = []
+    if dose_str:
+        extras.append(f"dose:{dose_str}")
+    if route and route != "unknown":
+        extras.append(f"route: {route}")
+    if site and site != "unknown":
+        extras.append(f"site: {site}")
+    extras_str = f" — {', '.join(extras)}" if extras else ""
+
+    return f"[Immunization {iid}] {vaccine} ({status}, {when}){extras_str}"
+
+
 def format_allergy_intolerance(a: dict[str, Any]) -> str:
     """Summary: substance, category/type, criticality, and reaction if recorded."""
     aid = a.get("id", "?")
@@ -303,6 +354,8 @@ _FORMATTERS = {
     "MedicationRequest": format_medication_request,
     "Encounter": format_encounter,
     "AllergyIntolerance": format_allergy_intolerance,
+    "DiagnosticReport": format_diagnostic_report,
+    "Immunization": format_immunization,
 }
 
 
@@ -517,6 +570,47 @@ def allergy_intolerance_to_json(a: dict[str, Any]) -> dict[str, Any]:
     return model.model_dump(by_alias=True)
 
 
+def diagnostic_report_to_json(r: dict[str, Any]) -> dict[str, Any]:
+    categories = r.get("category") or []
+    performers = r.get("performer") or []
+    performer_display = None
+    if performers:
+        first = performers[0]
+        performer_display = first.get("display") or first.get("reference")
+
+    model = models.DiagnosticReportJson(
+        id=str(r.get("id", "?")),
+        codeDisplay=_coding_display(r.get("code")),
+        category=_coding_display(categories[0]) if categories else None,
+        status=r.get("status"),
+        effectiveDate=r.get("effectiveDateTime"),
+        issued=r.get("issued"),
+        performer=performer_display,
+        resultReferences=[
+            ref.get("reference") for ref in (r.get("result") or [])
+            if ref.get("reference")
+        ],
+        conclusion=r.get("conclusion"),
+    )
+    return model.model_dump(by_alias=True)
+
+
+def immunization_to_json(imm: dict[str, Any]) -> dict[str, Any]:
+    dose = imm.get("doseQuantity") or {}
+    model = models.ImmunizationJson(
+        id=str(imm.get("id", "?")),
+        vaccine=_coding_display(imm.get("vaccineCode")),
+        status=imm.get("status"),
+        occurrence=imm.get("occurrenceDateTime") or imm.get("occurrenceString"),
+        lotNumber=imm.get("lotNumber"),
+        site=_coding_display(imm.get("site")) if imm.get("site") else None,
+        route=_coding_display(imm.get("route")) if imm.get("route") else None,
+        doseQuantity=dose.get("value"),
+        doseUnit=dose.get("unit"),
+    )
+    return model.model_dump(by_alias=True)
+
+
 _JSON_FORMATTERS = {
     "Patient": patient_to_json,
     "Observation": observation_to_json,
@@ -524,6 +618,8 @@ _JSON_FORMATTERS = {
     "MedicationRequest": medication_request_to_json,
     "Encounter": encounter_to_json,
     "AllergyIntolerance": allergy_intolerance_to_json,
+    "DiagnosticReport": diagnostic_report_to_json,
+    "Immunization": immunization_to_json,
 }
 
 

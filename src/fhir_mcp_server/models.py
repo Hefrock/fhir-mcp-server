@@ -135,6 +135,32 @@ class AllergyIntoleranceJson(_Base):
     reactions: list[AllergyReactionJson] = Field(default_factory=list)
 
 
+class DiagnosticReportJson(_Base):
+    id: str
+    resource_type: str = Field(default="DiagnosticReport", alias="resourceType")
+    code_display: str = Field(alias="codeDisplay")
+    category: Optional[str] = None
+    status: Optional[str] = None
+    effective_date: Optional[str] = Field(default=None, alias="effectiveDate")
+    issued: Optional[str] = None
+    performer: Optional[str] = None
+    result_references: list[str] = Field(default_factory=list, alias="resultReferences")
+    conclusion: Optional[str] = None
+
+
+class ImmunizationJson(_Base):
+    id: str
+    resource_type: str = Field(default="Immunization", alias="resourceType")
+    vaccine: str
+    status: Optional[str] = None
+    occurrence: Optional[str] = None
+    lot_number: Optional[str] = Field(default=None, alias="lotNumber")
+    site: Optional[str] = None
+    route: Optional[str] = None
+    dose_quantity: Optional[float] = Field(default=None, alias="doseQuantity")
+    dose_unit: Optional[str] = Field(default=None, alias="doseUnit")
+
+
 # ---------------------------------------------------------------------------
 # Bundle envelope for search results
 # ---------------------------------------------------------------------------
