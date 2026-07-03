@@ -183,6 +183,82 @@ SAMPLE_ALLERGY_BUNDLE = {
     ],
 }
 
+SAMPLE_DIAGNOSTIC_REPORT = {
+    "resourceType": "DiagnosticReport",
+    "id": "dr-cbc-1",
+    "status": "final",
+    "category": [
+        {
+            "coding": [
+                {
+                    "system": "http://terminology.hl7.org/CodeSystem/v2-0074",
+                    "code": "LAB",
+                    "display": "Laboratory",
+                }
+            ]
+        }
+    ],
+    "code": {
+        "coding": [
+            {"system": "http://loinc.org", "code": "58410-2", "display": "CBC panel"}
+        ],
+        "text": "Complete blood count",
+    },
+    "subject": {"reference": "Patient/example"},
+    "effectiveDateTime": "2024-03-01",
+    "issued": "2024-03-02T10:15:00Z",
+    "performer": [{"display": "Community Labs"}],
+    "result": [
+        {"reference": "Observation/obs-hgb", "display": "Hemoglobin 12.5 g/dL"},
+        {"reference": "Observation/obs-wbc", "display": "WBC 5.2 x10^9/L"},
+    ],
+    "conclusion": "Normal CBC. No cytopenias.",
+}
+
+SAMPLE_DIAGNOSTIC_REPORT_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 1,
+    "entry": [
+        {
+            "fullUrl": f"{FHIR_BASE}/DiagnosticReport/dr-cbc-1",
+            "resource": SAMPLE_DIAGNOSTIC_REPORT,
+        }
+    ],
+}
+
+SAMPLE_IMMUNIZATION = {
+    "resourceType": "Immunization",
+    "id": "imm-flu-2024",
+    "status": "completed",
+    "vaccineCode": {
+        "coding": [
+            {"system": "http://hl7.org/fhir/sid/cvx", "code": "158",
+             "display": "Influenza, injectable, quadrivalent"}
+        ],
+        "text": "Influenza vaccine (quadrivalent)",
+    },
+    "patient": {"reference": "Patient/example"},
+    "occurrenceDateTime": "2024-10-15",
+    "primarySource": True,
+    "lotNumber": "AB123CD",
+    "site": {"text": "Left deltoid"},
+    "route": {"text": "Intramuscular"},
+    "doseQuantity": {"value": 0.5, "unit": "mL"},
+}
+
+SAMPLE_IMMUNIZATION_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 1,
+    "entry": [
+        {
+            "fullUrl": f"{FHIR_BASE}/Immunization/imm-flu-2024",
+            "resource": SAMPLE_IMMUNIZATION,
+        }
+    ],
+}
+
 SAMPLE_CAPABILITY_STATEMENT = {
     "resourceType": "CapabilityStatement",
     "status": "active",

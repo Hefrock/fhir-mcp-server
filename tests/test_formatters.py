@@ -12,7 +12,9 @@ from .conftest import (
     SAMPLE_ALLERGY,
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION,
+    SAMPLE_DIAGNOSTIC_REPORT,
     SAMPLE_ENCOUNTER,
+    SAMPLE_IMMUNIZATION,
     SAMPLE_MEDICATION,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
@@ -177,4 +179,41 @@ class TestFormatAllergyIntolerance:
             {"resourceType": "AllergyIntolerance", "id": "a"}
         )
         assert "AllergyIntolerance a" in out
+        assert "unknown" in out
+
+
+class TestFormatDiagnosticReport:
+    def test_summary_includes_key_fields(self):
+        out = formatters.format_diagnostic_report(SAMPLE_DIAGNOSTIC_REPORT)
+        assert "DiagnosticReport dr-cbc-1" in out
+        assert "Complete blood count" in out
+        assert "Laboratory" in out
+        assert "final" in out
+        assert "2 result(s)" in out
+        assert "Normal CBC" in out
+        assert "Community Labs" in out
+
+    def test_tolerates_minimal_report(self):
+        out = formatters.format_diagnostic_report(
+            {"resourceType": "DiagnosticReport", "id": "r"}
+        )
+        assert "DiagnosticReport r" in out
+        assert "unknown" in out
+
+
+class TestFormatImmunization:
+    def test_summary_includes_key_fields(self):
+        out = formatters.format_immunization(SAMPLE_IMMUNIZATION)
+        assert "Immunization imm-flu-2024" in out
+        assert "Influenza vaccine" in out
+        assert "completed" in out
+        assert "2024-10-15" in out
+        assert "Intramuscular" in out
+        assert "0.5" in out
+
+    def test_tolerates_minimal_immunization(self):
+        out = formatters.format_immunization(
+            {"resourceType": "Immunization", "id": "i"}
+        )
+        assert "Immunization i" in out
         assert "unknown" in out
