@@ -19,6 +19,7 @@ Every summary includes the resource id so the model can chain a follow-up read.
 
 import asyncio
 import functools
+import json
 from typing import Any, Callable, Optional
 
 import httpx
@@ -85,6 +86,23 @@ def _capped_count(count: int) -> str:
     return str(max(1, min(count, 50)))
 
 
+def _validate_format(fmt: str) -> str:
+    """
+    Normalize the ``format`` tool argument.
+
+    "text" (default) → human/AI-readable summary strings.
+    "json"           → structured JSON documents shaped by models.py.
+    """
+    if fmt not in ("text", "json"):
+        raise ValueError(f"format must be 'text' or 'json', got {fmt!r}")
+    return fmt
+
+
+def _json(payload: Any) -> str:
+    """Serialize a dict/list to a JSON string for the MCP text envelope."""
+    return json.dumps(payload, default=str)
+
+
 # ---------------------------------------------------------------------------
 # Connection preflight
 # ---------------------------------------------------------------------------
@@ -92,7 +110,7 @@ def _capped_count(count: int) -> str:
 
 @mcp.tool()
 @fhir_tool
-async def check_connection() -> str:
+async def check_connection(format: str = "text") -> str:
     """
     Verify the FHIR server is reachable and describe its capabilities.
 
@@ -100,8 +118,14 @@ async def check_connection() -> str:
     summary: FHIR version, server software, security requirements, and the
     list of supported resource types. Call this first when pointing at a new
     endpoint to confirm the connection works and the server actually speaks R4.
+
+    - format: "text" (default, human-readable) or "json" (structured document
+      shaped like {baseUrl, fhirVersion, isR4, serverName, resources, ...})
     """
+    fmt = _validate_format(format)
     cap = await fhir_client.get_capability_statement()
+    if fmt == "json":
+        return _json(formatters.capability_to_json(cap, fhir_client.FHIR_BASE_URL))
     return formatters.format_capability_statement(cap, fhir_client.FHIR_BASE_URL)
 
 
@@ -112,13 +136,19 @@ async def check_connection() -> str:
 
 @mcp.tool()
 @fhir_tool
-async def read_patient(patient_id: str) -> str:
+async def read_patient(patient_id: str, format: str = "text") -> str:
     """
     Fetch a single Patient by FHIR id and return a readable summary.
 
     The summary includes name, gender, age/DOB, and identifiers (e.g. MRN).
+
+    - format: "text" (default) or "json" for a structured document
+      shaped like {id, name, gender, birthDate, ageYears, identifiers}.
     """
+    fmt = _validate_format(format)
     resource = await fhir_client.read_resource("Patient", patient_id)
+    if fmt == "json":
+        return _json(formatters.patient_to_json(resource))
     return formatters.format_patient(resource)
 
 
@@ -131,6 +161,7 @@ async def search_patients(
     birthdate: Optional[str] = None,
     identifier: Optional[str] = None,
     count: int = 10,
+    format: str = "text",
 ) -> str:
     """
     Search for Patients.
@@ -141,9 +172,12 @@ async def search_patients(
       - birthdate : ISO date (YYYY-MM-DD); supports prefixes like ge1990-01-01
       - identifier: system|value, e.g. "http://hospital.org/mrn|12345"
       - count     : max results (default 10, max 50)
+      - format    : "text" (default) or "json" for a bundle envelope
+                    {total, returned, resources: [...], nextPage}
 
     Returns one summary line per matching patient, each prefixed with its id.
     """
+    fmt = _validate_format(format)
     params: dict[str, str] = {"_count": _capped_count(count)}
     for key, value in {
         "name": name,
@@ -156,6 +190,8 @@ async def search_patients(
             params[key] = value
 
     bundle = await fhir_client.search_resources("Patient", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)
 
 
@@ -166,14 +202,19 @@ async def search_patients(
 
 @mcp.tool()
 @fhir_tool
-async def read_observation(observation_id: str) -> str:
+async def read_observation(observation_id: str, format: str = "text") -> str:
     """
     Fetch a single Observation by FHIR id and return a readable summary.
 
     Observations are measurements and assertions: vitals, labs, imaging
     findings. The summary shows what was measured, the value, status, and time.
+
+    - format: "text" (default) or "json" for a structured document.
     """
+    fmt = _validate_format(format)
     resource = await fhir_client.read_resource("Observation", observation_id)
+    if fmt == "json":
+        return _json(formatters.observation_to_json(resource))
     return formatters.format_observation(resource)
 
 
@@ -185,6 +226,7 @@ async def search_observations(
     category: Optional[str] = None,
     date: Optional[str] = None,
     count: int = 10,
+    format: str = "text",
 ) -> str:
     """
     Search for Observations.
@@ -195,9 +237,11 @@ async def search_observations(
       - category: "vital-signs", "laboratory", "imaging", etc.
       - date    : ISO date or range, e.g. "ge2024-01-01"
       - count   : max results (default 10, max 50)
+      - format  : "text" (default) or "json" for a bundle envelope
 
     Returns one summary line per matching observation.
     """
+    fmt = _validate_format(format)
     params: dict[str, str] = {"_count": _capped_count(count)}
     if patient is not None:
         params["patient"] = patient
@@ -210,6 +254,8 @@ async def search_observations(
         params["date"] = date
 
     bundle = await fhir_client.search_resources("Observation", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)
 
 
@@ -224,6 +270,7 @@ async def search_conditions(
     patient: Optional[str] = None,
     clinical_status: Optional[str] = None,
     count: int = 10,
+    format: str = "text",
 ) -> str:
     """
     Search for Conditions (problems / diagnoses).
@@ -231,9 +278,11 @@ async def search_conditions(
       - patient        : patient id (or Patient/{id}) to filter by subject
       - clinical_status: "active", "recurrence", "resolved", etc.
       - count          : max results (default 10, max 50)
+      - format         : "text" (default) or "json" for a bundle envelope
 
     Returns one summary line per condition with its clinical status and onset.
     """
+    fmt = _validate_format(format)
     params: dict[str, str] = {"_count": _capped_count(count)}
     if patient is not None:
         params["patient"] = patient
@@ -241,6 +290,8 @@ async def search_conditions(
         params["clinical-status"] = clinical_status
 
     bundle = await fhir_client.search_resources("Condition", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)
 
 
@@ -255,6 +306,7 @@ async def search_medications(
     patient: Optional[str] = None,
     status: Optional[str] = None,
     count: int = 10,
+    format: str = "text",
 ) -> str:
     """
     Search for MedicationRequests (prescriptions / orders).
@@ -262,9 +314,11 @@ async def search_medications(
       - patient : patient id (or Patient/{id}) to filter by subject
       - status  : "active", "completed", "stopped", "on-hold", etc.
       - count   : max results (default 10, max 50)
+      - format  : "text" (default) or "json" for a bundle envelope
 
     Returns one summary line per medication order with status and dosage.
     """
+    fmt = _validate_format(format)
     params: dict[str, str] = {"_count": _capped_count(count)}
     if patient is not None:
         params["patient"] = patient
@@ -272,12 +326,16 @@ async def search_medications(
         params["status"] = status
 
     bundle = await fhir_client.search_resources("MedicationRequest", params)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)
 
 
 @mcp.tool()
 @fhir_tool
-async def check_medication_interactions(medications: list[str]) -> str:
+async def check_medication_interactions(
+    medications: list[str], format: str = "text"
+) -> str:
     """
     Check a list of medications for known pairwise drug interactions.
 
@@ -285,11 +343,34 @@ async def check_medication_interactions(medications: list[str]) -> str:
     Uses a small LOCAL reference set — NOT a substitute for clinical decision
     support. Returns each interaction found with a severity and explanation,
     most severe first, or a clear message when none are found.
+
+    - format: "text" (default) or "json" — {medications, findings: [{severity,
+      drugA, drugB, description}, ...]}
     """
+    fmt = _validate_format(format)
     if len(medications) < 2:
+        if fmt == "json":
+            return _json({"medications": medications, "findings": []})
         return "Provide at least two medications to check for interactions."
 
     findings = interactions.check_medications(medications)
+
+    if fmt == "json":
+        return _json(
+            {
+                "medications": medications,
+                "findings": [
+                    {
+                        "severity": f["severity"].upper(),
+                        "drugA": f["drug_a"],
+                        "drugB": f["drug_b"],
+                        "description": f["description"],
+                    }
+                    for f in findings
+                ],
+            }
+        )
+
     if not findings:
         return (
             f"No known interactions found among: {', '.join(medications)}. "
@@ -313,15 +394,19 @@ async def check_medication_interactions(medications: list[str]) -> str:
 
 @mcp.tool()
 @fhir_tool
-async def get_next_page(next_url: str) -> str:
+async def get_next_page(next_url: str, format: str = "text") -> str:
     """
     Fetch the next page of a FHIR search result.
 
     Pass the 'Next page' URL from any search result here. The URL must point
     to the same FHIR server (FHIR_BASE_URL) — other hosts are refused.
-    Returns the same readable summary format as the original search.
+
+    - format: "text" (default) or "json" — same shape as the source search.
     """
+    fmt = _validate_format(format)
     bundle = await fhir_client.fetch_next_page(next_url)
+    if fmt == "json":
+        return _json(formatters.bundle_to_json(bundle))
     return formatters.format_bundle(bundle)
 
 
@@ -348,7 +433,7 @@ def _section(title: str, items: list[str]) -> str:
 
 @mcp.tool()
 @fhir_tool
-async def get_patient_summary(patient_id: str) -> str:
+async def get_patient_summary(patient_id: str, format: str = "text") -> str:
     """
     Build a one-shot clinical snapshot for a patient.
 
@@ -356,7 +441,11 @@ async def get_patient_summary(patient_id: str) -> str:
     vital-sign Observations, and active MedicationRequests. Then checks the
     active medications for known drug interactions. Returns a single readable
     summary. Individual sections degrade gracefully if a sub-query fails.
+
+    - format: "text" (default) or "json" — {patient, activeConditions,
+      recentVitals, activeMedications, interactionWarnings}
     """
+    fmt = _validate_format(format)
     # Fire all four FHIR calls at once; gather waits for the slowest. With
     # return_exceptions=True a single failure becomes a value we can handle
     # rather than an exception that aborts the whole summary.
@@ -379,35 +468,14 @@ async def get_patient_summary(patient_id: str) -> str:
 
     # The patient read is the one fetch we can't do without.
     if isinstance(patient, Exception):
-        return f"Could not retrieve Patient {patient_id}: {patient}"
-
-    lines = ["=== Patient Summary ===", formatters.format_patient(patient), ""]
+        msg = f"Could not retrieve Patient {patient_id}: {patient}"
+        if fmt == "json":
+            return _json({"error": msg, "patientId": patient_id})
+        return msg
 
     condition_resources = _resources(conditions)
-    lines.append(
-        _section(
-            "Active conditions",
-            [formatters.format_condition(c) for c in condition_resources],
-        )
-    )
-    lines.append("")
-
     vital_resources = _resources(vitals)
-    lines.append(
-        _section(
-            "Recent vital signs",
-            [formatters.format_observation(o) for o in vital_resources],
-        )
-    )
-    lines.append("")
-
     med_resources = _resources(meds)
-    lines.append(
-        _section(
-            "Active medications",
-            [formatters.format_medication_request(m) for m in med_resources],
-        )
-    )
 
     # Cross-check: extract drug names from the medication displays and run them
     # through the interaction checker.
@@ -420,6 +488,54 @@ async def get_patient_summary(patient_id: str) -> str:
         drug_names.extend(interactions.extract_known_drugs(text))
 
     findings = interactions.check_medications(drug_names)
+
+    if fmt == "json":
+        return _json(
+            {
+                "patient": formatters.patient_to_json(patient),
+                "activeConditions": [
+                    formatters.condition_to_json(c) for c in condition_resources
+                ],
+                "recentVitals": [
+                    formatters.observation_to_json(o) for o in vital_resources
+                ],
+                "activeMedications": [
+                    formatters.medication_request_to_json(m) for m in med_resources
+                ],
+                "interactionWarnings": [
+                    {
+                        "severity": f["severity"].upper(),
+                        "drugA": f["drug_a"],
+                        "drugB": f["drug_b"],
+                        "description": f["description"],
+                    }
+                    for f in findings
+                ],
+            }
+        )
+
+    lines = ["=== Patient Summary ===", formatters.format_patient(patient), ""]
+    lines.append(
+        _section(
+            "Active conditions",
+            [formatters.format_condition(c) for c in condition_resources],
+        )
+    )
+    lines.append("")
+    lines.append(
+        _section(
+            "Recent vital signs",
+            [formatters.format_observation(o) for o in vital_resources],
+        )
+    )
+    lines.append("")
+    lines.append(
+        _section(
+            "Active medications",
+            [formatters.format_medication_request(m) for m in med_resources],
+        )
+    )
+
     if findings:
         lines.append("")
         warnings = [
