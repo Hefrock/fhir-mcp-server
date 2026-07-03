@@ -121,6 +121,68 @@ SAMPLE_MEDICATION_BUNDLE = {
 }
 
 
+SAMPLE_ENCOUNTER = {
+    "resourceType": "Encounter",
+    "id": "enc-ambulatory-1",
+    "status": "finished",
+    "class": {
+        "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+        "code": "AMB",
+        "display": "ambulatory",
+    },
+    "type": [{"text": "Primary care visit"}],
+    "subject": {"reference": "Patient/example"},
+    "period": {"start": "2024-03-01T09:00:00Z", "end": "2024-03-01T09:30:00Z"},
+    "reasonCode": [{"text": "Annual physical exam"}],
+    "serviceProvider": {"reference": "Organization/1", "display": "Community Clinic"},
+}
+
+SAMPLE_ENCOUNTER_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 1,
+    "entry": [
+        {
+            "fullUrl": f"{FHIR_BASE}/Encounter/enc-ambulatory-1",
+            "resource": SAMPLE_ENCOUNTER,
+        }
+    ],
+}
+
+SAMPLE_ALLERGY = {
+    "resourceType": "AllergyIntolerance",
+    "id": "allergy-penicillin",
+    "clinicalStatus": {
+        "coding": [{"code": "active"}],
+        "text": "active",
+    },
+    "verificationStatus": {"text": "confirmed"},
+    "type": "allergy",
+    "category": ["medication"],
+    "criticality": "high",
+    "code": {"text": "Penicillin"},
+    "patient": {"reference": "Patient/example"},
+    "recordedDate": "2015-06-10",
+    "reaction": [
+        {
+            "manifestation": [{"text": "Hives"}, {"text": "Difficulty breathing"}],
+            "severity": "severe",
+        }
+    ],
+}
+
+SAMPLE_ALLERGY_BUNDLE = {
+    "resourceType": "Bundle",
+    "type": "searchset",
+    "total": 1,
+    "entry": [
+        {
+            "fullUrl": f"{FHIR_BASE}/AllergyIntolerance/allergy-penicillin",
+            "resource": SAMPLE_ALLERGY,
+        }
+    ],
+}
+
 SAMPLE_CAPABILITY_STATEMENT = {
     "resourceType": "CapabilityStatement",
     "status": "active",

@@ -29,10 +29,12 @@ from . import models
 
 def _coding_display(concept: dict[str, Any] | None) -> str:
     """
-    Pull a human label out of a FHIR CodeableConcept.
+    Pull a human label out of a FHIR CodeableConcept or Coding.
 
-    Prefers the top-level ``text``, then the first coding's ``display``, then
-    its raw ``code``. Returns "unknown" if there's nothing usable.
+    A CodeableConcept has ``text`` and/or a ``coding[]`` list. A bare Coding
+    (used by e.g. Encounter.class) has ``display``/``code`` at the top level.
+    We prefer the most human-readable option available: text → coding.display
+    → coding.code → this-level display → this-level code → "unknown".
     """
     if not concept:
         return "unknown"
@@ -43,6 +45,10 @@ def _coding_display(concept: dict[str, Any] | None) -> str:
             return coding["display"]
         if coding.get("code"):
             return coding["code"]
+    if concept.get("display"):
+        return concept["display"]
+    if concept.get("code"):
+        return concept["code"]
     return "unknown"
 
 
@@ -172,6 +178,60 @@ def format_medication_request(med: dict[str, Any]) -> str:
     return f"[MedicationRequest {mid}] {drug} ({status}, ordered {when}){dosage}"
 
 
+def format_encounter(enc: dict[str, Any]) -> str:
+    """Summary: visit type/reason, class (setting), status, and time window."""
+    eid = enc.get("id", "?")
+    enc_class = _coding_display(enc.get("class")) if enc.get("class") else "unknown"
+    type_ = "unknown"
+    types = enc.get("type") or []
+    if types:
+        type_ = _coding_display(types[0])
+    status = enc.get("status", "unknown")
+    period = enc.get("period") or {}
+    start = period.get("start", "unknown start")
+    end = period.get("end", "ongoing")
+    reason = ""
+    reasons = enc.get("reasonCode") or []
+    if reasons:
+        reason_text = _coding_display(reasons[0])
+        if reason_text and reason_text != "unknown":
+            reason = f" — {reason_text}"
+    return (
+        f"[Encounter {eid}] {type_} ({enc_class}, {status}, "
+        f"{start} → {end}){reason}"
+    )
+
+
+def format_allergy_intolerance(a: dict[str, Any]) -> str:
+    """Summary: substance, category/type, criticality, and reaction if recorded."""
+    aid = a.get("id", "?")
+    substance = _coding_display(a.get("code"))
+    a_type = a.get("type") or "unknown type"
+    categories = ", ".join(a.get("category") or []) or "unspecified category"
+    criticality = a.get("criticality") or "unknown criticality"
+    cs = a.get("clinicalStatus")
+    clinical = _coding_display(cs) if cs else "unknown"
+    reaction_str = ""
+    reactions = a.get("reaction") or []
+    if reactions:
+        first = reactions[0]
+        manifestations = [
+            _coding_display(m) for m in (first.get("manifestation") or [])
+        ]
+        sev = first.get("severity")
+        parts = []
+        if manifestations:
+            parts.append(", ".join(m for m in manifestations if m and m != "unknown"))
+        if sev:
+            parts.append(f"severity: {sev}")
+        if parts:
+            reaction_str = f" — reaction: {'; '.join(parts)}"
+    return (
+        f"[AllergyIntolerance {aid}] {substance} ({a_type}, {categories}, "
+        f"criticality: {criticality}, clinical: {clinical}){reaction_str}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Bundle formatting
 # ---------------------------------------------------------------------------
@@ -241,6 +301,8 @@ _FORMATTERS = {
     "Observation": format_observation,
     "Condition": format_condition,
     "MedicationRequest": format_medication_request,
+    "Encounter": format_encounter,
+    "AllergyIntolerance": format_allergy_intolerance,
 }
 
 
@@ -405,11 +467,63 @@ def capability_to_json(cap: dict[str, Any], base_url: str) -> dict[str, Any]:
     return model.model_dump(by_alias=True)
 
 
+def encounter_to_json(enc: dict[str, Any]) -> dict[str, Any]:
+    types = enc.get("type") or []
+    reasons = enc.get("reasonCode") or []
+    period = enc.get("period") or {}
+    provider = enc.get("serviceProvider") or {}
+
+    model = models.EncounterJson(
+        id=str(enc.get("id", "?")),
+        status=enc.get("status"),
+        **{"class": _coding_display(enc.get("class")) if enc.get("class") else None},
+        type=_coding_display(types[0]) if types else None,
+        reason=_coding_display(reasons[0]) if reasons else None,
+        start=period.get("start"),
+        end=period.get("end"),
+        serviceProvider=provider.get("display") or provider.get("reference"),
+    )
+    return model.model_dump(by_alias=True)
+
+
+def allergy_intolerance_to_json(a: dict[str, Any]) -> dict[str, Any]:
+    reactions = []
+    for r in a.get("reaction") or []:
+        manifestations = [
+            _coding_display(m) for m in (r.get("manifestation") or [])
+        ]
+        manifestations = [m for m in manifestations if m and m != "unknown"]
+        reactions.append(
+            models.AllergyReactionJson(
+                manifestations=manifestations, severity=r.get("severity")
+            )
+        )
+
+    model = models.AllergyIntoleranceJson(
+        id=str(a.get("id", "?")),
+        substance=_coding_display(a.get("code")),
+        type=a.get("type"),
+        categories=a.get("category") or [],
+        criticality=a.get("criticality"),
+        clinicalStatus=_coding_display(a.get("clinicalStatus"))
+        if a.get("clinicalStatus")
+        else None,
+        verificationStatus=_coding_display(a.get("verificationStatus"))
+        if a.get("verificationStatus")
+        else None,
+        recordedDate=a.get("recordedDate"),
+        reactions=reactions,
+    )
+    return model.model_dump(by_alias=True)
+
+
 _JSON_FORMATTERS = {
     "Patient": patient_to_json,
     "Observation": observation_to_json,
     "Condition": condition_to_json,
     "MedicationRequest": medication_request_to_json,
+    "Encounter": encounter_to_json,
+    "AllergyIntolerance": allergy_intolerance_to_json,
 }
 
 

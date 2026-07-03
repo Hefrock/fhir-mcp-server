@@ -20,9 +20,13 @@ from fhir_mcp_server.server import (
     check_medication_interactions,
     get_next_page,
     get_patient_summary,
+    read_allergy_intolerance,
+    read_encounter,
     read_observation,
     read_patient,
+    search_allergy_intolerances,
     search_conditions,
+    search_encounters,
     search_medications,
     search_observations,
     search_patients,
@@ -30,9 +34,13 @@ from fhir_mcp_server.server import (
 
 from .conftest import (
     FHIR_BASE,
+    SAMPLE_ALLERGY,
+    SAMPLE_ALLERGY_BUNDLE,
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION,
     SAMPLE_CONDITION_BUNDLE,
+    SAMPLE_ENCOUNTER,
+    SAMPLE_ENCOUNTER_BUNDLE,
     SAMPLE_MEDICATION,
     SAMPLE_MEDICATION_BUNDLE,
     SAMPLE_OBSERVATION,
@@ -362,3 +370,81 @@ class TestModelSchemas:
         schema = models.PatientJson.model_json_schema()
         assert schema["type"] == "object"
         assert "identifiers" in schema["properties"]
+
+
+class TestEncounterToJson:
+    def test_shape(self):
+        out = formatters.encounter_to_json(SAMPLE_ENCOUNTER)
+        assert out["id"] == "enc-ambulatory-1"
+        assert out["resourceType"] == "Encounter"
+        assert out["status"] == "finished"
+        assert out["class"] == "ambulatory"
+        assert out["type"] == "Primary care visit"
+        assert out["reason"] == "Annual physical exam"
+        assert out["start"] == "2024-03-01T09:00:00Z"
+        assert out["serviceProvider"] == "Community Clinic"
+
+    def test_tolerates_missing_fields(self):
+        out = formatters.encounter_to_json({"resourceType": "Encounter", "id": "e"})
+        assert out["id"] == "e"
+        assert out["type"] is None
+        assert out["status"] is None
+
+
+class TestAllergyToJson:
+    def test_shape(self):
+        out = formatters.allergy_intolerance_to_json(SAMPLE_ALLERGY)
+        assert out["id"] == "allergy-penicillin"
+        assert out["substance"] == "Penicillin"
+        assert out["type"] == "allergy"
+        assert out["categories"] == ["medication"]
+        assert out["criticality"] == "high"
+        assert out["clinicalStatus"] == "active"
+        assert out["recordedDate"] == "2015-06-10"
+        assert len(out["reactions"]) == 1
+        assert "Hives" in out["reactions"][0]["manifestations"]
+        assert out["reactions"][0]["severity"] == "severe"
+
+
+class TestReadEncounterJson:
+    async def test_returns_parseable_json(self, mock_fhir):
+        mock_fhir.get("/Encounter/enc-ambulatory-1").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ENCOUNTER)
+        )
+        result = await read_encounter("enc-ambulatory-1", format="json")
+        parsed = json.loads(result)
+        assert parsed["type"] == "Primary care visit"
+        assert parsed["class"] == "ambulatory"
+
+
+class TestSearchEncountersJson:
+    async def test_bundle_envelope(self, mock_fhir):
+        mock_fhir.get("/Encounter").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ENCOUNTER_BUNDLE)
+        )
+        result = await search_encounters(patient="example", format="json")
+        parsed = json.loads(result)
+        assert parsed["returned"] == 1
+        assert parsed["resources"][0]["type"] == "Primary care visit"
+
+
+class TestReadAllergyIntoleranceJson:
+    async def test_returns_parseable_json(self, mock_fhir):
+        mock_fhir.get("/AllergyIntolerance/allergy-penicillin").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ALLERGY)
+        )
+        result = await read_allergy_intolerance("allergy-penicillin", format="json")
+        parsed = json.loads(result)
+        assert parsed["substance"] == "Penicillin"
+        assert parsed["criticality"] == "high"
+
+
+class TestSearchAllergiesJson:
+    async def test_bundle_envelope(self, mock_fhir):
+        mock_fhir.get("/AllergyIntolerance").mock(
+            return_value=httpx.Response(200, json=SAMPLE_ALLERGY_BUNDLE)
+        )
+        result = await search_allergy_intolerances(patient="example", format="json")
+        parsed = json.loads(result)
+        assert parsed["returned"] == 1
+        assert parsed["resources"][0]["substance"] == "Penicillin"

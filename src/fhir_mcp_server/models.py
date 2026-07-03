@@ -105,6 +105,36 @@ class MedicationRequestJson(_Base):
     dosage_text: Optional[str] = Field(default=None, alias="dosageText")
 
 
+class EncounterJson(_Base):
+    id: str
+    resource_type: str = Field(default="Encounter", alias="resourceType")
+    status: Optional[str] = None
+    encounter_class: Optional[str] = Field(default=None, alias="class")
+    type: Optional[str] = None
+    reason: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    service_provider: Optional[str] = Field(default=None, alias="serviceProvider")
+
+
+class AllergyReactionJson(_Base):
+    manifestations: list[str] = Field(default_factory=list)
+    severity: Optional[str] = None
+
+
+class AllergyIntoleranceJson(_Base):
+    id: str
+    resource_type: str = Field(default="AllergyIntolerance", alias="resourceType")
+    substance: str
+    type: Optional[str] = None
+    categories: list[str] = Field(default_factory=list)
+    criticality: Optional[str] = None
+    clinical_status: Optional[str] = Field(default=None, alias="clinicalStatus")
+    verification_status: Optional[str] = Field(default=None, alias="verificationStatus")
+    recorded_date: Optional[str] = Field(default=None, alias="recordedDate")
+    reactions: list[AllergyReactionJson] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Bundle envelope for search results
 # ---------------------------------------------------------------------------

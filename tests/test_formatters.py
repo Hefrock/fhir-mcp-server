@@ -9,8 +9,10 @@ from fhir_mcp_server import formatters
 
 from .conftest import (
     FHIR_BASE,
+    SAMPLE_ALLERGY,
     SAMPLE_CAPABILITY_STATEMENT,
     SAMPLE_CONDITION,
+    SAMPLE_ENCOUNTER,
     SAMPLE_MEDICATION,
     SAMPLE_OBSERVATION,
     SAMPLE_OBSERVATION_BUNDLE,
@@ -141,4 +143,38 @@ class TestFormatCapabilityStatement:
             {"resourceType": "CapabilityStatement"}, FHIR_BASE
         )
         assert FHIR_BASE in out
+        assert "unknown" in out
+
+
+class TestFormatEncounter:
+    def test_summary_includes_key_fields(self):
+        out = formatters.format_encounter(SAMPLE_ENCOUNTER)
+        assert "Encounter enc-ambulatory-1" in out
+        assert "Primary care visit" in out
+        assert "ambulatory" in out
+        assert "finished" in out
+        assert "Annual physical exam" in out
+
+    def test_tolerates_missing_fields(self):
+        out = formatters.format_encounter({"resourceType": "Encounter", "id": "e"})
+        assert "Encounter e" in out
+        # Doesn't crash on missing status/class/type/period/reason
+        assert "unknown" in out
+
+
+class TestFormatAllergyIntolerance:
+    def test_summary_includes_substance_and_reaction(self):
+        out = formatters.format_allergy_intolerance(SAMPLE_ALLERGY)
+        assert "AllergyIntolerance allergy-penicillin" in out
+        assert "Penicillin" in out
+        assert "medication" in out
+        assert "criticality: high" in out
+        assert "Hives" in out
+        assert "severity: severe" in out
+
+    def test_tolerates_minimal_allergy(self):
+        out = formatters.format_allergy_intolerance(
+            {"resourceType": "AllergyIntolerance", "id": "a"}
+        )
+        assert "AllergyIntolerance a" in out
         assert "unknown" in out
