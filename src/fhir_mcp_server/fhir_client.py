@@ -33,6 +33,13 @@ FHIR_BASE_URL = os.getenv("FHIR_BASE_URL", "https://r4.smarthealthit.org")
 # for this transport layer — obtain the token externally and pass it in.
 FHIR_ACCESS_TOKEN = os.getenv("FHIR_ACCESS_TOKEN")
 
+# Optional human-readable label naming this backend (e.g. "SMART sandbox",
+# "Synthea lab", "Epic PROD — real patient data"). When set, the label is
+# prepended to the FastMCP `instructions` string and included in the
+# check_connection output so the AI (and the user) can see which backend
+# they're talking to. Purely informational — does not affect HTTP behaviour.
+FHIR_SERVER_LABEL = os.getenv("FHIR_SERVER_LABEL")
+
 # The FHIR media type tells the server we want JSON-encoded FHIR, not plain JSON.
 _HEADERS = {"Accept": "application/fhir+json"}
 

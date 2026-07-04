@@ -27,22 +27,36 @@ from mcp.server.fastmcp import FastMCP
 
 from . import fhir_client, formatters, interactions, loinc_codes
 
-mcp = FastMCP(
-    "FHIR R4",
-    instructions=(
-        "Query a FHIR R4 server for Patients, Observations, Conditions, "
-        "MedicationRequests, Encounters (visits), AllergyIntolerance records, "
-        "DiagnosticReports (labs, imaging, pathology), and Immunizations. "
-        "Use search tools to find resources by demographic or clinical "
-        "criteria, then read tools to retrieve full details by id. "
-        "The check_medication_interactions tool flags known drug interactions "
-        "from a local reference set (not for clinical use). "
-        "Search results include a 'Next page' URL when more results exist; "
-        "pass it to get_next_page to fetch the following page. "
-        "Call check_connection first when pointing at a new endpoint to confirm "
-        "the server is reachable, speaks R4, and to see its supported resources."
-    ),
+_BASE_INSTRUCTIONS = (
+    "Query a FHIR R4 server for Patients, Observations, Conditions, "
+    "MedicationRequests, Encounters (visits), AllergyIntolerance records, "
+    "DiagnosticReports (labs, imaging, pathology), and Immunizations. "
+    "Use search tools to find resources by demographic or clinical "
+    "criteria, then read tools to retrieve full details by id. "
+    "The check_medication_interactions tool flags known drug interactions "
+    "from a local reference set (not for clinical use). "
+    "Search results include a 'Next page' URL when more results exist; "
+    "pass it to get_next_page to fetch the following page. "
+    "Call check_connection first when pointing at a new endpoint to confirm "
+    "the server is reachable, speaks R4, and to see its supported resources."
 )
+
+
+def _build_instructions() -> str:
+    """
+    Prepend the operator-provided FHIR_SERVER_LABEL to the instructions.
+
+    Multi-backend setups register this server once per FHIR endpoint under
+    different names; the label lets each instance announce its identity to
+    the AI so it can (a) select the correct backend when the user names one
+    and (b) be more cautious with backends labelled as production.
+    """
+    if fhir_client.FHIR_SERVER_LABEL:
+        return f"[Backend: {fhir_client.FHIR_SERVER_LABEL}]\n\n{_BASE_INSTRUCTIONS}"
+    return _BASE_INSTRUCTIONS
+
+
+mcp = FastMCP("FHIR R4", instructions=_build_instructions())
 
 
 def fhir_tool(func: Callable) -> Callable:
@@ -127,8 +141,14 @@ async def check_connection(format: str = "text") -> str:
     fmt = _validate_format(format)
     cap = await fhir_client.get_capability_statement()
     if fmt == "json":
-        return _json(formatters.capability_to_json(cap, fhir_client.FHIR_BASE_URL))
-    return formatters.format_capability_statement(cap, fhir_client.FHIR_BASE_URL)
+        return _json(
+            formatters.capability_to_json(
+                cap, fhir_client.FHIR_BASE_URL, fhir_client.FHIR_SERVER_LABEL
+            )
+        )
+    return formatters.format_capability_statement(
+        cap, fhir_client.FHIR_BASE_URL, fhir_client.FHIR_SERVER_LABEL
+    )
 
 
 # ---------------------------------------------------------------------------

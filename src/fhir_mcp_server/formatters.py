@@ -287,7 +287,9 @@ def format_allergy_intolerance(a: dict[str, Any]) -> str:
 # Bundle formatting
 # ---------------------------------------------------------------------------
 
-def format_capability_statement(cap: dict[str, Any], base_url: str) -> str:
+def format_capability_statement(
+    cap: dict[str, Any], base_url: str, label: str | None = None
+) -> str:
     """
     Summarize a FHIR CapabilityStatement (returned by GET /metadata).
 
@@ -315,15 +317,18 @@ def format_capability_statement(cap: dict[str, Any], base_url: str) -> str:
         first = rest_entries[0]
         security = first.get("security") or {}
         for svc in security.get("service") or []:
-            label = _coding_display(svc)
-            if label and label != "unknown":
-                security_services.append(label)
+            svc_name = _coding_display(svc)
+            if svc_name and svc_name != "unknown":
+                security_services.append(svc_name)
         for res in first.get("resource") or []:
             rtype = res.get("type")
             if rtype:
                 resource_types.append(rtype)
 
-    lines = [f"FHIR endpoint at {base_url}"]
+    lines = []
+    if label:
+        lines.append(f"Backend: {label}")
+    lines.append(f"FHIR endpoint at {base_url}")
     lines.append(f"  Server: {sw_line}")
     if description:
         lines.append(f"  Implementation: {description}")
@@ -487,7 +492,9 @@ def medication_request_to_json(med: dict[str, Any]) -> dict[str, Any]:
     return model.model_dump(by_alias=True)
 
 
-def capability_to_json(cap: dict[str, Any], base_url: str) -> dict[str, Any]:
+def capability_to_json(
+    cap: dict[str, Any], base_url: str, label: str | None = None
+) -> dict[str, Any]:
     fhir_version = cap.get("fhirVersion", "unknown")
 
     software = cap.get("software") or {}
@@ -499,9 +506,9 @@ def capability_to_json(cap: dict[str, Any], base_url: str) -> dict[str, Any]:
     if rest_entries:
         first = rest_entries[0]
         for svc in (first.get("security") or {}).get("service") or []:
-            label = _coding_display(svc)
-            if label and label != "unknown":
-                security_services.append(label)
+            svc_name = _coding_display(svc)
+            if svc_name and svc_name != "unknown":
+                security_services.append(svc_name)
         for res in first.get("resource") or []:
             rtype = res.get("type")
             if rtype:
@@ -509,6 +516,7 @@ def capability_to_json(cap: dict[str, Any], base_url: str) -> dict[str, Any]:
 
     model = models.CapabilityJson(
         baseUrl=base_url,
+        label=label,
         fhirVersion=fhir_version,
         isR4=fhir_version.startswith("4"),
         serverName=software.get("name"),
