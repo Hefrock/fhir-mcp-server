@@ -2,8 +2,9 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant query
 **FHIR R4** healthcare data. Point Claude (or any MCP client) at a FHIR server
-and ask natural-language questions about patients, observations, conditions, and
-medications — and check medication lists for known interactions.
+and ask natural-language questions about patients, observations, conditions,
+medications, encounters, allergies, diagnostic reports, and immunizations — and
+check medication lists for known interactions.
 
 > **Not for clinical use.** This is an educational/portfolio project that talks
 > to public test sandboxes seeded with synthetic patients.
@@ -69,8 +70,9 @@ the design and [EXAMPLES.md](EXAMPLES.md) for full conversation transcripts.
 
 ```
 src/fhir_mcp_server/
-├── fhir_client.py    ← async HTTP I/O (httpx), pooled connection
-├── formatters.py     ← FHIR resource -> readable clinical summary
+├── fhir_client.py    ← async HTTP I/O (httpx), pooled connection, bearer auth
+├── formatters.py     ← FHIR resource -> readable clinical summary or JSON
+├── models.py         ← Pydantic models defining the JSON output contract
 ├── loinc_codes.py    ← friendly names <-> LOINC codes
 ├── interactions.py   ← local drug-interaction lookup
 └── server.py         ← MCP tool definitions (FastMCP)
