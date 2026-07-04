@@ -94,13 +94,38 @@ new TCP+TLS connection every time — wasteful for a long-running server. Lazy
 creation means importing the module never touches the network or an event loop,
 which keeps imports cheap and tests fast. `aclose()` exists for clean shutdown.
 
-For authenticated endpoints (Epic, Cerner, Meditech sandboxes, production
-servers), setting the `FHIR_ACCESS_TOKEN` env var attaches an
-`Authorization: Bearer <token>` header to every outgoing request. Full
-SMART-on-FHIR OAuth is deliberately out of scope for this transport layer —
-obtain the token externally and pass it in.
+Three environment variables configure the client at process start:
 
-### 3. Preflight with `check_connection`
+- **`FHIR_BASE_URL`** — the endpoint. Defaults to the SMART sandbox.
+- **`FHIR_ACCESS_TOKEN`** — optional. When set, every request carries an
+  `Authorization: Bearer <token>` header. Full SMART-on-FHIR OAuth is
+  deliberately out of scope for this transport layer — obtain the token
+  externally and pass it in.
+- **`FHIR_SERVER_LABEL`** — optional short human description of the backend
+  (e.g. `"SMART sandbox"`, `"Local Synthea Lab"`, `"Epic PROD — confirm before use"`).
+  Prepended to the FastMCP `instructions` string and included in
+  `check_connection` output. Purely informational — has no HTTP effect.
+
+All three are read once at module import time.
+
+### 3. Multi-backend by composition, not by routing
+
+Each server process speaks to exactly one FHIR endpoint. To make several
+backends visible in a single Claude session (e.g. sandbox + Synthea Lab + Epic
+sandbox), register this same server package multiple times in the MCP client
+config, each entry under a distinct name and with its own
+`FHIR_BASE_URL` / `FHIR_ACCESS_TOKEN` / `FHIR_SERVER_LABEL`. Claude then sees
+namespaced toolsets (`sandbox__get_patient_summary`,
+`epic__get_patient_summary`, …) and the user addresses them by name.
+
+This shape is deliberate. Adding a `source` parameter to every tool — or an
+in-process routing table — would push backend selection down into L1, which is
+an interpretation concern. Under MECE, that responsibility belongs to the
+consumer (a human via the client config today, an L4 orchestrator eventually).
+The label makes each backend identifiable to the model without changing what
+L1 is *for*.
+
+### 4. Preflight with `check_connection`
 
 The `check_connection` tool hits `GET /metadata`, parses the server's
 `CapabilityStatement`, and returns a summary of what the endpoint supports:
@@ -109,14 +134,14 @@ resource types. A non-R4 `fhirVersion` is flagged so a user pointed at an
 STU3 or R5 endpoint learns immediately instead of hitting cryptic 404s on the
 first clinical query. Call this first when pointing at a new server.
 
-### 4. Order-independent interaction keys
+### 5. Order-independent interaction keys
 
 Interactions are symmetric: warfarin+aspirin == aspirin+warfarin. We key the
 lookup table on `frozenset({a, b})`, which is hashable and ignores order, so we
 store each interaction once and match it regardless of argument order. A
 synonym table normalizes brand names ("Coumadin" → "warfarin") before lookup.
 
-### 5. Defensive parsing
+### 6. Defensive parsing
 
 Every FHIR element is optional and may repeat. Formatters never index blindly
 (`patient["name"][0]["family"]` crashes on real data); they navigate with
@@ -124,14 +149,14 @@ Every FHIR element is optional and may repeat. Formatters never index blindly
 one of many `value[x]` shapes (`valueQuantity`, `valueCodeableConcept`,
 `component`, …), so `format_observation` checks each in turn.
 
-### 6. Friendly code resolution at the boundary
+### 7. Friendly code resolution at the boundary
 
 `search_observations` accepts `code="heart_rate"` and resolves it to `8867-4`
 via `loinc_codes.resolve()` *before* querying. Unknown values pass through
 unchanged, so raw codes still work. Input normalization happens once, at the
 edge.
 
-### 7. Concurrent composite tools
+### 8. Concurrent composite tools
 
 `get_patient_summary` issues four FHIR calls (patient, conditions, vitals,
 medications) with `asyncio.gather(..., return_exceptions=True)`. Two payoffs:
@@ -162,6 +187,10 @@ the summary connects the two.
 
 ## Testing strategy
 
+Two suites, deliberately kept in separate directories:
+
+**`tests/` — the unit-test tier (140+ tests, ~4s, zero network)**
+
 - **Pure modules** (`loinc_codes`, `interactions`, `formatters`, `models`)
   test with plain function calls — no mocks, no I/O. Fast and exhaustive.
 - **HTTP layer** (`fhir_client`) and **tools** (`server`) test with
@@ -170,8 +199,22 @@ the summary connects the two.
 - **JSON output contracts** have their own test file (`test_json_output.py`)
   that asserts on the *shape* of each tool's structured response — the actual
   contract downstream consumers rely on, not incidental prose.
-- A shared, autouse fixture resets the pooled client and pins `FHIR_BASE_URL`
-  and `FHIR_ACCESS_TOKEN` around every test, so module-level state never leaks
-  between tests.
+- A shared, autouse fixture resets the pooled client and pins `FHIR_BASE_URL`,
+  `FHIR_ACCESS_TOKEN`, and `FHIR_SERVER_LABEL` around every test, so
+  module-level state never leaks between tests.
 
-Run it all with `make check` (lint + tests) — the same gate CI enforces.
+**`tests_synthea/` — the smoke-test tier (nightly, ~5 min)**
+
+- End-to-end tests against a **real HAPI FHIR server** loaded with the
+  reproducible Synthea patients from the sibling
+  [`fhir-synthea-lab`](https://github.com/Hefrock/fhir-synthea-lab) repo.
+- Booted by the `.github/workflows/synthea-smoke.yml` GitHub Actions workflow
+  on a nightly schedule and via manual `workflow_dispatch`.
+- The suite discovers patient IDs at runtime (Synthea uses random UUIDs) so it
+  survives lab regeneration.
+- Catches real-world FHIR quirks the mocked unit tests can't: HAPI response
+  shapes, Synthea data variations, pagination against a live server.
+
+Local dev uses `make check` (unit tests + lint) — the same gate PR CI
+enforces. The smoke tier is opt-in; run it locally only when you've booted
+the lab: `FHIR_BASE_URL=http://localhost:8080/fhir pytest tests_synthea/`.

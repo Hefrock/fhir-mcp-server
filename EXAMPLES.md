@@ -1,9 +1,11 @@
 # Examples
 
-Real interaction patterns with `fhir-mcp-server` connected to the SMART R4
-sandbox (`https://r4.smarthealthit.org`). The sandbox is seeded with synthetic
-patients, so exact ids and values vary between runs — the *shape* of the
-exchange is what matters.
+Real interaction patterns with `fhir-mcp-server` — 18 MCP tools across 8 FHIR
+R4 resource types (Patient, Observation, Condition, MedicationRequest,
+Encounter, AllergyIntolerance, DiagnosticReport, Immunization). Examples below
+run against the SMART R4 sandbox (`https://r4.smarthealthit.org`); the sandbox
+is seeded with synthetic patients, so exact ids and values vary between runs
+— the *shape* of the exchange is what matters.
 
 > The tool results below are the actual text the tools return (see
 > `formatters.py`). Each summary leads with the resource id so the assistant can
@@ -13,10 +15,8 @@ exchange is what matters.
 
 ![Demo of fhir-mcp-server in Claude Desktop](assets/demo.gif)
 
-> _Placeholder._ Record a short screen capture of a conversation in Claude
-> Desktop and save it as `assets/demo.gif`. A 15–30s clip showing one
-> patient-lookup → vitals → interaction-check flow makes the best portfolio
-> asset.
+A live session with a synthetic 75-year-old patient showing a full clinical
+summary and a flagged MODERATE drug interaction (amlodipine + simvastatin).
 
 ---
 
@@ -259,3 +259,141 @@ consumer side.
 ```
 
 Same information as the text summary — different consumer, different shape.
+
+## 8. Visit history via Encounter
+
+Encounters anchor observations, conditions, and medications in *when they were
+recorded* — the visit that generated them. Useful for asking "what did the
+last three appointments look like?"
+
+```
+You:    Show me patient 1a2b's recent encounters.
+
+Claude: [calls search_encounters(patient="1a2b", count=5)]
+
+        Found 3 result(s) (total reported: 3):
+          - [Encounter e-1122] Cardiology follow-up (ambulatory, finished,
+            2024-11-15T14:00 → 2024-11-15T14:45) — INR check
+          - [Encounter e-0918] Primary care visit (ambulatory, finished,
+            2024-09-18T09:00 → 2024-09-18T09:30) — Annual physical exam
+          - [Encounter e-0703] Emergency department (emergency, finished,
+            2024-07-03T21:12 → 2024-07-04T02:40) — Chest pain, ruled out MI
+
+        Three visits in the last five months: a July ED visit for chest pain
+        (ruled out), a September annual physical, and a November cardiology
+        follow-up for INR monitoring.
+```
+
+## 9. Safety cross-check with AllergyIntolerance
+
+The natural companion to the interaction checker. Before recommending or
+discussing a medication, verify the patient isn't allergic to it.
+
+```
+You:    Does this patient have any recorded drug allergies? Patient 1a2b.
+
+Claude: [calls search_allergy_intolerances(patient="1a2b", category="medication")]
+
+        Found 1 result(s) (total reported: 1):
+          - [AllergyIntolerance a-pen] Penicillin (allergy, medication,
+            criticality: high, clinical: active) — reaction: Hives,
+            Difficulty breathing; severity: severe
+
+        Yes — the patient has a documented severe allergy to penicillin
+        (hives + difficulty breathing). Any beta-lactam antibiotic is
+        contraindicated. Non-penicillin alternatives (e.g. azithromycin,
+        doxycycline) would be appropriate if antibiotics were needed.
+```
+
+An L2 clinical-safety agent will ultimately fold this into every prescription
+recommendation. In L1 the data is available as clean typed records.
+
+## 10. Lab panel via DiagnosticReport
+
+Individual `Observation` resources are useful for numeric trends, but a *lab
+panel* is a report — a CBC or a lipid panel groups related observations under
+a single narrative with a conclusion.
+
+```
+You:    What did patient 1a2b's most recent lab report show?
+
+Claude: [calls search_diagnostic_reports(patient="1a2b", category="LAB", count=1)]
+
+        Found 1 result(s) (total reported: 1):
+          - [DiagnosticReport dr-cbc-1122] Complete blood count (Laboratory,
+            final, 2024-11-15) by Community Labs — 6 result(s) — Mild
+            normocytic anemia; no cytopenias.
+
+        The November CBC showed mild normocytic anemia but no cytopenias
+        (all cell lines within normal ranges except hemoglobin). The
+        panel groups 6 individual observations under one report.
+```
+
+The `code` parameter accepts friendly LOINC names too:
+`search_diagnostic_reports(patient="1a2b", code="hemoglobin_a1c")` resolves to
+LOINC `4548-4`.
+
+## 11. Immunization history
+
+Records vaccine administrations (or documented refusals). Feeds into
+preventive-care recommendations and outbreak-response workflows.
+
+```
+You:    When did patient 1a2b last get a flu shot?
+
+Claude: [calls search_immunizations(patient="1a2b", count=10)]
+
+        Found 4 result(s) (total reported: 4):
+          - [Immunization imm-flu-2024] Influenza vaccine (quadrivalent)
+            (completed, 2024-10-15) — dose: 0.5 mL, route: Intramuscular,
+            site: Left deltoid
+          - [Immunization imm-flu-2023] Influenza vaccine (quadrivalent)
+            (completed, 2023-10-04)
+          - [Immunization imm-covid-2024] COVID-19 mRNA vaccine (booster)
+            (completed, 2024-10-15)
+          - [Immunization imm-tdap-2022] Tdap booster (completed, 2022-04-11)
+
+        Most recent flu shot: October 15, 2024. Also received the COVID
+        booster the same visit. Tdap is up to date (2022). No pneumococcal
+        vaccine on record — worth checking given age.
+```
+
+## 12. Multiple backends in one session
+
+With `FHIR_SERVER_LABEL` set and multiple `mcpServers` entries registered in
+the client config, the AI can address each backend by name and confirms which
+endpoint it's using.
+
+```
+You:    Confirm which servers are configured.
+
+Claude: [calls fhir-sandbox__check_connection()]
+
+        Backend: SMART Health IT sandbox (public, synthetic data only)
+        FHIR endpoint at https://r4.smarthealthit.org
+          Server: HAPI FHIR Server v5.4.0
+          FHIR version: 4.0.1
+          Security: SMART-on-FHIR
+          ...
+
+        [calls fhir-lab__check_connection()]
+
+        Backend: Local Synthea Lab (reproducible synthetic patients)
+        FHIR endpoint at http://localhost:8080/fhir
+          Server: HAPI FHIR Server v7.2.0
+          FHIR version: 4.0.1
+          ...
+
+        Two backends configured: the SMART sandbox and a local Synthea Lab.
+        Both speak R4. Which do you want to query?
+
+You:    Look up patient 1a2b in the sandbox.
+
+Claude: [calls fhir-sandbox__read_patient(patient_id="1a2b")]
+        ...
+```
+
+For sensitive backends — `fhir-epic`, say — pair this with a `CLAUDE.md` rule
+requiring confirmation before invocation. The label is what makes the rule
+enforceable: it turns each backend into an addressable, human-legible target
+rather than an anonymous endpoint.
