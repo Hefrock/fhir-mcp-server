@@ -142,6 +142,77 @@ When set, every outgoing request carries an `Authorization: Bearer <token>`
 header. Full SMART-on-FHIR OAuth flow is out of scope for this transport layer
 — obtain the token externally and pass it in.
 
+### 🏷️ Naming the backend (`FHIR_SERVER_LABEL`)
+
+Set `FHIR_SERVER_LABEL` to a short human description of the backend this
+instance points at:
+
+```bash
+FHIR_BASE_URL=https://r4.smarthealthit.org \
+FHIR_SERVER_LABEL="SMART sandbox (synthetic data)" \
+fhir-mcp-server
+```
+
+The label is prepended to the FastMCP `instructions` string the AI sees on
+every turn, and surfaces in `check_connection` output. In a multi-backend
+setup this is what lets the AI (and you) confirm which endpoint each call
+is targeting. Purely informational — does not affect HTTP behaviour.
+
+### 🌐 Multiple backends in one Claude session
+
+Because the server is stateless with respect to its endpoint, you can register
+it under **multiple names** in the same client config — each with its own
+`FHIR_BASE_URL`, `FHIR_ACCESS_TOKEN`, and `FHIR_SERVER_LABEL`:
+
+```json
+{
+  "mcpServers": {
+    "fhir-sandbox": {
+      "command": "python", "args": ["-m", "fhir_mcp_server"],
+      "env": {
+        "FHIR_BASE_URL": "https://r4.smarthealthit.org",
+        "FHIR_SERVER_LABEL": "SMART sandbox (synthetic data only)"
+      }
+    },
+    "fhir-lab": {
+      "command": "python", "args": ["-m", "fhir_mcp_server"],
+      "env": {
+        "FHIR_BASE_URL": "http://localhost:8080/fhir",
+        "FHIR_SERVER_LABEL": "Local Synthea Lab (reproducible synthetic patients)"
+      }
+    },
+    "fhir-epic": {
+      "command": "python", "args": ["-m", "fhir_mcp_server"],
+      "env": {
+        "FHIR_BASE_URL": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4",
+        "FHIR_ACCESS_TOKEN": "eyJhbGc...",
+        "FHIR_SERVER_LABEL": "Epic PROD — real patient data. Confirm before use."
+      }
+    }
+  }
+}
+```
+
+Claude then sees three independent toolsets (`fhir-sandbox__read_patient`,
+`fhir-lab__read_patient`, `fhir-epic__read_patient`) and you address them by
+name:
+
+> *"Give me a summary of patient 1a2b **from the sandbox**."*
+>
+> *"Now do the same on **fhir-epic** — confirm before you call it."*
+
+For sensitive backends, add a rule to your project's `CLAUDE.md`:
+
+```markdown
+Before invoking any tool on `fhir-epic`, state which server you are about to
+use and wait for confirmation. For `fhir-sandbox` and `fhir-lab`, proceed
+without confirmation.
+```
+
+Claude Code follows these instructions reliably, turning production endpoints
+into pause-and-confirm targets while keeping fast paths for the safer
+backends.
+
 ### NixOS / Nix users
 
 A flake provides a reproducible dev shell: a Nix-pinned Python plus a project

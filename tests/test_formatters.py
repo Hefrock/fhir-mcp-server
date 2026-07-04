@@ -147,6 +147,22 @@ class TestFormatCapabilityStatement:
         assert FHIR_BASE in out
         assert "unknown" in out
 
+    def test_label_included_when_provided(self):
+        out = formatters.format_capability_statement(
+            SAMPLE_CAPABILITY_STATEMENT, FHIR_BASE, label="Synthea lab"
+        )
+        # Label appears as a header line, above the endpoint URL
+        assert "Backend: Synthea lab" in out
+        # And the rest of the summary is still present
+        assert "FHIR endpoint at" in out
+        assert "HAPI FHIR Server" in out
+
+    def test_no_label_line_when_none(self):
+        out = formatters.format_capability_statement(
+            SAMPLE_CAPABILITY_STATEMENT, FHIR_BASE
+        )
+        assert "Backend:" not in out
+
 
 class TestFormatEncounter:
     def test_summary_includes_key_fields(self):

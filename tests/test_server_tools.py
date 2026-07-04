@@ -318,6 +318,18 @@ class TestCheckConnection:
         result = await check_connection()
         assert "503" in result
 
+    async def test_backend_label_in_output(self, mock_fhir):
+        # Label surfaces in check_connection so the operator can see which
+        # backend they're pointed at.
+        from fhir_mcp_server import fhir_client
+        fhir_client.FHIR_SERVER_LABEL = "Synthea lab"
+
+        mock_fhir.get("/metadata").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CAPABILITY_STATEMENT)
+        )
+        result = await check_connection()
+        assert "Backend: Synthea lab" in result
+
 
 class TestReadEncounter:
     async def test_returns_readable_summary(self, mock_fhir):

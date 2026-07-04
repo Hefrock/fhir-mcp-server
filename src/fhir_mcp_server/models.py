@@ -184,6 +184,7 @@ class CapabilityJson(_Base):
     """Preflight summary from GET /metadata."""
 
     base_url: str = Field(alias="baseUrl")
+    label: Optional[str] = None
     fhir_version: str = Field(alias="fhirVersion")
     is_r4: bool = Field(alias="isR4")
     server_name: Optional[str] = Field(default=None, alias="serverName")

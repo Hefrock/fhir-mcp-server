@@ -317,6 +317,7 @@ def _isolate_client():
     """
     fhir_client.FHIR_BASE_URL = FHIR_BASE
     fhir_client.FHIR_ACCESS_TOKEN = None
+    fhir_client.FHIR_SERVER_LABEL = None
     fhir_client._client = None
     yield
     fhir_client._client = None

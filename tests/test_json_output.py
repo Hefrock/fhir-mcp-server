@@ -275,6 +275,19 @@ class TestCheckConnectionJson:
         assert parsed["fhirVersion"] == "4.0.1"
         assert parsed["isR4"] is True
         assert "Patient" in parsed["resources"]
+        # label is null when FHIR_SERVER_LABEL is unset
+        assert parsed["label"] is None
+
+    async def test_label_appears_in_json(self, mock_fhir):
+        from fhir_mcp_server import fhir_client
+        fhir_client.FHIR_SERVER_LABEL = "Epic PROD"
+
+        mock_fhir.get("/metadata").mock(
+            return_value=httpx.Response(200, json=SAMPLE_CAPABILITY_STATEMENT)
+        )
+        result = await check_connection(format="json")
+        parsed = json.loads(result)
+        assert parsed["label"] == "Epic PROD"
 
 
 class TestGetPatientSummaryJson:
