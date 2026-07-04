@@ -224,6 +224,21 @@ NixOS). Get it from whichever fits your machine:
 CI (GitHub Actions) runs `ruff check .` and `pytest` on Python 3.11 and 3.12 —
 the same `make check` gate, so local green means CI green.
 
+A separate **nightly** workflow (`.github/workflows/synthea-smoke.yml`) boots
+[`fhir-synthea-lab`](https://github.com/Hefrock/fhir-synthea-lab) — a Dockerized
+HAPI FHIR server pre-loaded with reproducible Synthea patients — and runs the
+`tests_synthea/` suite against it. This catches real-world FHIR quirks the
+mocked unit tests can't (HAPI response shapes, Synthea data variations,
+pagination against a live server). Run it manually with the "Run workflow"
+button on the Actions tab, or locally:
+
+```bash
+# in the sibling fhir-synthea-lab repo
+make all
+# then in this repo
+FHIR_BASE_URL=http://localhost:8080/fhir pytest tests_synthea/ -v
+```
+
 ## 👏 Acknowledgments
 
 This project draws inspiration from two efforts that focus on helping patients
