@@ -45,7 +45,14 @@ jobs:
 
       - name: Boot Synthea Lab (docker up + generate + load)
         working-directory: synthea-lab
-        run: make all
+        # Explicit sub-targets instead of `make all` — we skip `make verify`
+        # because its scripts/verify.py imports `requests`, a dep we don't
+        # otherwise install in this workflow. The suite in tests_synthea/
+        # is our verification; the lab's self-check is redundant here.
+        run: |
+          make up
+          make generate
+          make load
         timeout-minutes: 10
 
       - name: Wait for FHIR endpoint readiness
