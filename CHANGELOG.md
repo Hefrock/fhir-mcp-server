@@ -5,6 +5,22 @@ All notable changes to `fhir-mcp-server` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Pagination URLs are checked by parsed origin, not string prefix.**
+  `get_next_page` previously accepted any URL that *started with*
+  `FHIR_BASE_URL`, so a lookalike host (`https://host.evil.com`) received the
+  request and the bearer token. Scheme, host and port must now match exactly,
+  embedded credentials and dot segments are refused, the path must sit under
+  the base path, and `_count` may not exceed the 50-result cap.
+- **Resource ids are validated against the FHIR id grammar** before being
+  placed in the URL path. Ids containing `/`, `?`, `$` or dot segments could
+  previously reach other endpoints on the same host.
+- **A bearer token is never sent over plain HTTP** to a non-loopback host. If
+  `FHIR_ACCESS_TOKEN` is set, `FHIR_BASE_URL` must be HTTPS (or localhost).
+
 ## [1.0.0] — 2026-07-04
 
 The initial stable release. `fhir-mcp-server` is now **feature-complete for

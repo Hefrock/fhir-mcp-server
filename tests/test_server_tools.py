@@ -463,3 +463,22 @@ class TestSearchImmunizations:
         )
         assert captured["params"]["status"] == "completed"
         assert captured["params"]["date"] == "ge2024-01-01"
+
+
+class TestUrlHardening:
+    """Unsafe ids and pagination URLs come back as friendly errors, not requests."""
+
+    async def test_read_tool_refuses_path_traversal_id(self, mock_fhir):
+        result = await read_patient("../../admin/users")
+        assert "Invalid request" in result
+        assert not mock_fhir.calls
+
+    async def test_next_page_refuses_lookalike_host(self, mock_fhir):
+        result = await get_next_page("https://r4.smarthealthit.org.evil.com/Patient")
+        assert "Invalid request" in result
+        assert not mock_fhir.calls
+
+    async def test_summary_makes_no_requests_for_a_bad_id(self, mock_fhir):
+        result = await get_patient_summary("123/$everything")
+        assert "Invalid request" in result
+        assert not mock_fhir.calls

@@ -19,7 +19,9 @@ module never touches the network or an event loop.
 """
 
 import os
+import re
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 
@@ -43,7 +45,46 @@ FHIR_SERVER_LABEL = os.getenv("FHIR_SERVER_LABEL")
 # The FHIR media type tells the server we want JSON-encoded FHIR, not plain JSON.
 _HEADERS = {"Accept": "application/fhir+json"}
 
+# Largest page size any tool may request; also enforced on pagination URLs.
+MAX_PAGE_SIZE = 50
+
+# The FHIR R4 id grammar. Ids are placed in the URL path, so anything else
+# (slashes, "?", "$operations", dot segments) could redirect the request.
+_ID_RE = re.compile(r"[A-Za-z0-9\-.]{1,64}")
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
 _client: httpx.AsyncClient | None = None
+
+
+def validate_id(resource_id: str) -> str:
+    """Return the id unchanged if it is a legal FHIR id; raise ValueError if not."""
+    if not _ID_RE.fullmatch(resource_id) or resource_id in (".", ".."):
+        raise ValueError(
+            f"{resource_id[:80]!r} is not a valid FHIR resource id "
+            "(letters, digits, '-' and '.', at most 64 characters)."
+        )
+    return resource_id
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    """(scheme, host, port) with the scheme's default port filled in."""
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    return scheme, (parts.hostname or "").lower(), parts.port or _DEFAULT_PORTS.get(
+        scheme
+    )
+
+
+def _check_token_transport() -> None:
+    """Refuse to send a bearer token over plain HTTP to a non-local host."""
+    scheme, host, _ = _origin(FHIR_BASE_URL)
+    if FHIR_ACCESS_TOKEN and scheme != "https" and host not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            "FHIR_ACCESS_TOKEN is set but FHIR_BASE_URL is not HTTPS. "
+            "Refusing to send a bearer token over an unencrypted connection."
+        )
 
 
 def _build_headers() -> dict[str, str]:
@@ -58,6 +99,7 @@ def _get_client() -> httpx.AsyncClient:
     """Return the shared AsyncClient, creating it on first use."""
     global _client
     if _client is None or _client.is_closed:
+        _check_token_transport()
         _client = httpx.AsyncClient(headers=_build_headers(), timeout=30.0)
     return _client
 
@@ -72,6 +114,7 @@ async def aclose() -> None:
 
 async def read_resource(resource_type: str, resource_id: str) -> dict[str, Any]:
     """GET a single resource by type and id; raises HTTPStatusError on 4xx/5xx."""
+    validate_id(resource_id)
     response = await _get_client().get(f"{FHIR_BASE_URL}/{resource_type}/{resource_id}")
     response.raise_for_status()
     return response.json()
@@ -102,18 +145,49 @@ async def get_capability_statement() -> dict[str, Any]:
     return response.json()
 
 
+def _check_pagination_url(url: str) -> None:
+    """
+    Raise ValueError unless ``url`` points at the configured FHIR server.
+
+    A string-prefix test is not enough: "https://host.evil.com" and
+    "https://host@evil.com" both start with "https://host". We compare the
+    parsed scheme, host and port exactly, forbid embedded credentials and dot
+    segments, and require the path to sit at or under the base path.
+    """
+    refusal = (
+        f"Pagination URL {url[:200]!r} does not match the configured "
+        f"FHIR_BASE_URL {FHIR_BASE_URL!r}. Refusing to fetch."
+    )
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None or "\\" in url:
+        raise ValueError(refusal)
+    if _origin(url) != _origin(FHIR_BASE_URL):
+        raise ValueError(refusal)
+
+    path = unquote(parts.path)
+    if any(segment in (".", "..") for segment in path.split("/")):
+        raise ValueError(refusal)
+    base_path = urlsplit(FHIR_BASE_URL).path.rstrip("/")
+    if path.rstrip("/") != base_path and not path.startswith(base_path + "/"):
+        raise ValueError(refusal)
+
+    for value in parse_qs(parts.query).get("_count", []):
+        if not value.isdigit() or int(value) > MAX_PAGE_SIZE:
+            raise ValueError(
+                f"Pagination URL asks for _count={value[:20]!r}; "
+                f"the maximum page size is {MAX_PAGE_SIZE}."
+            )
+
+
 async def fetch_next_page(url: str) -> dict[str, Any]:
     """
     Fetch a pre-formed FHIR pagination URL.
 
-    The URL must start with the configured FHIR_BASE_URL — this prevents the
-    model from redirecting the client to an arbitrary external host.
+    The URL must point at the configured FHIR server (see
+    ``_check_pagination_url``) — this prevents the model from redirecting the
+    client, and any bearer token, to another host or endpoint.
     """
-    if not url.startswith(FHIR_BASE_URL):
-        raise ValueError(
-            f"Pagination URL {url!r} does not match the configured "
-            f"FHIR_BASE_URL {FHIR_BASE_URL!r}. Refusing to fetch."
-        )
+    _check_pagination_url(url)
     response = await _get_client().get(url)
     response.raise_for_status()
     return response.json()

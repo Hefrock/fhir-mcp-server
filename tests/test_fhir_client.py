@@ -9,6 +9,7 @@ These tests verify that the client correctly:
 
 import httpx
 import pytest
+import respx
 
 from fhir_mcp_server import fhir_client
 
@@ -134,3 +135,138 @@ class TestCapabilityStatement:
         mock_fhir.get("/metadata").mock(return_value=httpx.Response(503, text="down"))
         with pytest.raises(httpx.HTTPStatusError):
             await fhir_client.get_capability_statement()
+
+
+BAD_IDS = [
+    "../../admin/users",
+    "123/_history",
+    "123/$everything",
+    "x?_id=1&_revinclude=*",
+    "",
+    ".",
+    "..",
+    "a b",
+    "a%2Fb",
+    "a#b",
+    "a" * 65,
+]
+
+
+class TestResourceIdValidation:
+    """Ids go into the URL path, so anything outside the FHIR id grammar is refused."""
+
+    @pytest.mark.parametrize("bad_id", BAD_IDS)
+    async def test_rejects_ids_outside_fhir_grammar(self, mock_fhir, bad_id):
+        # No route is mocked: a request escaping would fail differently.
+        with pytest.raises(ValueError):
+            await fhir_client.read_resource("Patient", bad_id)
+        assert not mock_fhir.calls
+
+    @pytest.mark.parametrize("good_id", ["example", "A-1.b", "a" * 64])
+    async def test_accepts_valid_ids(self, mock_fhir, good_id):
+        mock_fhir.get(f"/Patient/{good_id}").mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+        )
+        result = await fhir_client.read_resource("Patient", good_id)
+        assert result["resourceType"] == "Patient"
+
+
+class TestPaginationGuard:
+    """The next-page URL must be the configured server, not a lookalike."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://r4.smarthealthit.org.evil.com/Patient",
+            "https://r4.smarthealthit.org@evil.com/Patient",
+            "https://user:pw@r4.smarthealthit.org/Patient",
+            "http://r4.smarthealthit.org/Patient",
+            "https://r4.smarthealthit.org:8443/Patient",
+            "https://r4.smarthealthit.org/Patient?_count=5000",
+            "https://r4.smarthealthit.org/a/../b",
+        ],
+    )
+    async def test_rejects_urls_off_the_configured_server(self, mock_fhir, url):
+        with pytest.raises(ValueError):
+            await fhir_client.fetch_next_page(url)
+        assert not mock_fhir.calls
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://r4.smarthealthit.org?_getpages=abc&_getpagesoffset=10&_count=10",
+            "https://r4.smarthealthit.org:443/Patient?_count=50",
+            "https://R4.SmartHealthIT.org/Patient?_getpagesoffset=10",
+        ],
+    )
+    async def test_accepts_urls_on_the_configured_server(self, mock_fhir, url):
+        mock_fhir.route().mock(
+            return_value=httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
+        )
+        result = await fhir_client.fetch_next_page(url)
+        assert result["resourceType"] == "Bundle"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://fhir.example.org/fhir.evil.com/Patient",
+            "https://fhir.example.org/fhir/../admin/users",
+            "https://fhir.example.org/fhir/%2e%2e/admin/users",
+            "https://fhir.example.org/admin/users",
+        ],
+    )
+    async def test_rejects_paths_outside_the_base_path(self, url):
+        fhir_client.FHIR_BASE_URL = "https://fhir.example.org/fhir"
+        with respx.mock(assert_all_called=False) as router:
+            router.route().mock(return_value=httpx.Response(200, json={}))
+            with pytest.raises(ValueError):
+                await fhir_client.fetch_next_page(url)
+            assert not router.calls
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://fhir.example.org/fhir?_getpages=abc",
+            "https://fhir.example.org/fhir/Patient?_getpagesoffset=10",
+        ],
+    )
+    async def test_accepts_paths_under_the_base_path(self, url):
+        fhir_client.FHIR_BASE_URL = "https://fhir.example.org/fhir"
+        with respx.mock(assert_all_called=False) as router:
+            router.route().mock(
+                return_value=httpx.Response(200, json=SAMPLE_PATIENT_BUNDLE)
+            )
+            result = await fhir_client.fetch_next_page(url)
+        assert result["resourceType"] == "Bundle"
+
+
+class TestTokenTransport:
+    """A bearer token is never sent over plain HTTP to a remote host."""
+
+    async def test_token_over_remote_http_is_refused(self):
+        fhir_client.FHIR_BASE_URL = "http://fhir.example.org/fhir"
+        fhir_client.FHIR_ACCESS_TOKEN = "secret"
+        with respx.mock(assert_all_called=False) as router:
+            router.route().mock(return_value=httpx.Response(200, json={}))
+            with pytest.raises(ValueError, match="HTTPS"):
+                await fhir_client.read_resource("Patient", "example")
+            assert not router.calls
+
+    @pytest.mark.parametrize(
+        "base,token",
+        [
+            ("http://localhost:8080/fhir", "secret"),
+            ("http://127.0.0.1:8080/fhir", "secret"),
+            ("https://fhir.example.org/fhir", "secret"),
+            ("http://fhir.example.org/fhir", None),
+        ],
+    )
+    async def test_allowed_combinations(self, base, token):
+        fhir_client.FHIR_BASE_URL = base
+        fhir_client.FHIR_ACCESS_TOKEN = token
+        with respx.mock(assert_all_called=False) as router:
+            router.route().mock(
+                return_value=httpx.Response(200, json=SAMPLE_PATIENT)
+            )
+            result = await fhir_client.read_resource("Patient", "example")
+        assert result["id"] == "example"

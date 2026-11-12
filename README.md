@@ -144,6 +144,9 @@ When set, every outgoing request carries an `Authorization: Bearer <token>`
 header. Full SMART-on-FHIR OAuth flow is out of scope for this transport layer
 — obtain the token externally and pass it in.
 
+With a token set, `FHIR_BASE_URL` must be HTTPS (plain HTTP is allowed only for
+`localhost`); the server refuses to send a token over an unencrypted connection.
+
 ### 🏷️ Naming the backend (`FHIR_SERVER_LABEL`)
 
 Set `FHIR_SERVER_LABEL` to a short human description of the backend this
