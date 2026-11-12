@@ -99,7 +99,7 @@ def fhir_tool(func: Callable) -> Callable:
 
 def _capped_count(count: int) -> str:
     """FHIR _count param, capped at 50 to keep responses bounded."""
-    return str(max(1, min(count, 50)))
+    return str(max(1, min(count, fhir_client.MAX_PAGE_SIZE)))
 
 
 def _validate_format(fmt: str) -> str:
@@ -717,6 +717,7 @@ async def get_patient_summary(patient_id: str, format: str = "text") -> str:
       recentVitals, activeMedications, interactionWarnings}
     """
     fmt = _validate_format(format)
+    fhir_client.validate_id(patient_id)
     # Fire all four FHIR calls at once; gather waits for the slowest. With
     # return_exceptions=True a single failure becomes a value we can handle
     # rather than an exception that aborts the whole summary.
